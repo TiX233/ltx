@@ -28,8 +28,8 @@ void ltx_Timer_add(struct ltx_Timer_stu *timer){
     while((*pTimer) != NULL){
         pTimer = &((*pTimer)->next);
     }
+    // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTimer = timer;
-    timer->next = NULL;
 }
 
 void ltx_Timer_remove(struct ltx_Timer_stu *timer){
@@ -68,8 +68,8 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm){
     while((*pAlarm) != NULL){
         pAlarm = &((*pAlarm)->next);
     }
+    // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pAlarm = alarm;
-    alarm->next = NULL;
 }
 
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
@@ -103,7 +103,7 @@ void ltx_Alarm_set_count(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down
     alarm->tick_count_down = tick_count_down;
 }
 
-// 话题，感觉可以用字符串去匹配，就不用全局变量满天飞了
+// 话题，感觉可以从轮询链表改为加入就绪队列，调度器只要弹出队列里的话题执行而不用每次轮询所有活跃话题的标志位，todo
 void ltx_Topic_add(struct ltx_Topic_stu *topic){
 
     if(topic->next != NULL){ // 已经存在，不重复加入
@@ -114,8 +114,8 @@ void ltx_Topic_add(struct ltx_Topic_stu *topic){
     while((*pTopic) != NULL){
         pTopic = &((*pTopic)->next);
     }
+    // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTopic = topic;
-    topic->next = NULL;
 }
 
 void ltx_Topic_remove(struct ltx_Topic_stu *topic){
@@ -154,8 +154,8 @@ void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscribe
     while((*pSub) != NULL){
         pSub = &((*pSub)->next);
     }
+    // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pSub = subscriber;
-    subscriber->next = NULL;
 }
 
 void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
@@ -182,16 +182,8 @@ void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscri
     }
 }
 
-void ltx_Topic_publish(struct ltx_Topic_stu *topic){
+void ltx_Topic_publish(struct ltx_Topic_stu *topic){ // 可安全地在中断中使用
     topic->flag = 1;
-
-    /*
-    struct ltx_Topic_subscriber_stu *pSub = topic->subscriber;
-    while(pSub != NULL){
-        pSub->flag ++;
-        pSub = pSub->next;
-    }
-    */
 }
 
 // 系统调度相关
@@ -236,17 +228,6 @@ void ltx_Sys_scheduler(void){
         // 处理订阅
         pTopic = ltx_sys_topic_list.next;
         while(pTopic != NULL){
-            /*
-            pSubscriber = pTopic->subscriber;
-            while(pSubscriber != NULL){
-                if(pSubscriber->flag){
-                    pSubscriber->callback_func(NULL);
-                    pSubscriber->flag = 0;
-                }
-
-                pSubscriber = pSubscriber->next;
-            }
-            */
             if(pTopic->flag){
                 pTopic->flag = 0;
 

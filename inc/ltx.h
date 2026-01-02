@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 简易的裸机调度框架，主要由定时器、闹钟和发布订阅机制构成。1tick = 1ms
- * @version 0.12
+ * @version 0.13
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -15,6 +15,7 @@
  *       2025-12-01 (0.10, 将话题与闹钟 flag 触发由 ++ 操作改为 置 1 操作)
  *       2025-12-07 (0.11, 将话题调度改为先置 flag 为 0 再调用订阅者回调，提高实时性与可拓展性)
  *       2025-12-12 (0.12, 优化闹钟调度中的移除操作，优化定时器发布话题操作)
+ *       2026-01-02 (0.13, 删除添加组件时无意义且有风险的置新元素 next 为 null)
  * 
  * @copyright Copyright (c) 2025
  * 
@@ -34,7 +35,6 @@ typedef uint32_t TickType_t;
 typedef uint16_t UsType_t;
 
 struct ltx_Topic_subscriber_stu {
-    // uint8_t flag;
 
     void (*callback_func)(void *param);
 
