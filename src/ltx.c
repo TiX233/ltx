@@ -30,6 +30,7 @@ void ltx_Timer_add(struct ltx_Timer_stu *timer){
     }
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTimer = timer;
+    timer->next = NULL;
 }
 
 void ltx_Timer_remove(struct ltx_Timer_stu *timer){
@@ -70,6 +71,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm){
     }
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pAlarm = alarm;
+    alarm->next = NULL;
 }
 
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
@@ -116,6 +118,7 @@ void ltx_Topic_add(struct ltx_Topic_stu *topic){
     }
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTopic = topic;
+    topic->next = NULL;
 }
 
 void ltx_Topic_remove(struct ltx_Topic_stu *topic){
@@ -156,6 +159,7 @@ void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscribe
     }
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pSub = subscriber;
+    subscriber->next = NULL;
 }
 
 void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
