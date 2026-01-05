@@ -225,6 +225,7 @@ TickType_t ltx_Sys_get_tick(void){
 void ltx_Sys_scheduler(void){
     struct ltx_Topic_stu *pTopic;
     struct ltx_Topic_subscriber_stu *pSubscriber;
+    struct ltx_Topic_subscriber_stu *pSubscriber_next;
     struct ltx_Alarm_stu *pAlarm;
     struct ltx_Alarm_stu *pAlarm2;
 
@@ -237,9 +238,11 @@ void ltx_Sys_scheduler(void){
 
                 pSubscriber = pTopic->subscriber;
                 while(pSubscriber != NULL){
+                    // 加一行 next 暂存，不然如果回调里把自己取消订阅了，那么 next 就是 NULL，那后续所有订阅这个话题的订阅者在这次话题发布都不会响应
+                    pSubscriber_next = pSubscriber->next;
                     pSubscriber->callback_func(pSubscriber);
 
-                    pSubscriber = pSubscriber->next;
+                    pSubscriber = pSubscriber_next;
                 }
             }
 
@@ -264,7 +267,7 @@ void ltx_Sys_scheduler(void){
                 break;
             }
 
-            pAlarm2 = pAlarm; // 但是每次循环要多跑一行代码🤔
+            pAlarm2 = pAlarm; // 但是每次循环要多跑一行代码🤔。感觉还是有点亏，毕竟大部分情况是在轮询而不是移除，想不到更优雅的办法
             pAlarm = pAlarm->next;
         }
     }

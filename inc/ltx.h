@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 简易的裸机调度框架，主要由定时器、闹钟和发布订阅机制构成。1tick = 1ms
- * @version 0.14
+ * @version 0.15
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -17,6 +17,7 @@
  *       2025-12-12 (0.12, 优化闹钟调度中的移除操作，优化定时器发布话题操作)
  *       2026-01-02 (0.13, 删除添加组件时无意义且有风险的置新元素 next 为 null)
  *       2026-01-04 (0.14, 恢复添加组件时置新元素 next 为 null，不然不能避免重复添加导致的连成环（失忆这一块）)
+ *       2026-01-05 (0.15, 添加组件结构体默认参数配置宏；修复潜在问题：在订阅者回调中取消订阅可能导致订阅者链表后续所有订阅者丢失此次对话题的响应)
  * 
  * @copyright Copyright (c) 2026
  * 
@@ -27,10 +28,16 @@
 
 #include "main.h"
 
+// 从结构体成员计算结构体指针
 // 好像不能直接用 linux 里的，从 rtthread 里偷一个
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - (unsigned long)(&((type *)0)->member)))
 
+
+// 组件结构体初始化默认参数
+#define _LTX_TOPIC_DEAFULT_CONFIG                       {.flag = 0, .subscriber = NULL, .next = NULL}
+#define _LTX_SUBSCRIBER_CONFIG(callback)                {.callback_func = callback, .next = NULL}
+#define _LTX_ALARM_CONFIG(tick_count_down,callback)     {.flag = 0, .tick_count_down = tick_count_down, .callback_alarm = callback, .next = NULL}
 
 typedef uint32_t TickType_t;
 typedef uint16_t UsType_t;
