@@ -3,37 +3,46 @@
 volatile TickType_t realTicks; // 系统时间，溢出处理 todo
 uint8_t flag_schedule = 0; // 调度开关标志位
 
+// ========== 活跃组件列表 ==========
 struct ltx_Topic_stu ltx_sys_topic_list = {
     .subscriber = NULL,
 
     .next = NULL,
 };
+struct ltx_Topic_stu **ltx_sys_topic_list_tail = &(ltx_sys_topic_list.next);
 
 struct ltx_Timer_stu ltx_sys_timer_list = {
     .next = NULL,
 };
+struct ltx_Timer_stu **ltx_sys_timer_list_tail = &(ltx_sys_timer_list.next);
 
 struct ltx_Alarm_stu ltx_sys_alarm_list = {
     .next = NULL,
 };
+struct ltx_Alarm_stu **ltx_sys_alarm_list_tail = &(ltx_sys_alarm_list.next);
 
-// 定时器
+// ========== 定时器相关 ==========
 void ltx_Timer_add(struct ltx_Timer_stu *timer){
 
     if(timer->next != NULL){ // 已经存在，不重复加入
         return ;
     }
 
+    /*
     struct ltx_Timer_stu **pTimer = &(ltx_sys_timer_list.next);
     while((*pTimer) != NULL){
         pTimer = &((*pTimer)->next);
     }
-    // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTimer = timer;
     timer->next = NULL;
+    */
+    *ltx_sys_timer_list_tail = timer;
+    timer->next = NULL;
+    ltx_sys_timer_list_tail = &(timer->next);
 }
 
 void ltx_Timer_remove(struct ltx_Timer_stu *timer){
+    /*
     struct ltx_Timer_stu *pTimer = ltx_sys_timer_list.next;
 
     if(pTimer == NULL){ // 定时器不在活跃列表中，不做操作
@@ -55,16 +64,33 @@ void ltx_Timer_remove(struct ltx_Timer_stu *timer){
         pTimer->next = timer->next;
         timer->next = NULL;
     }
+    */
+    struct ltx_Timer_stu *pTimer = &(ltx_sys_timer_list);
+    struct ltx_Timer_stu *pTimer_prev = pTimer;
 
+    while((pTimer->next != timer) && (pTimer->next != NULL)){
+        pTimer_prev = pTimer;
+        pTimer = pTimer->next;
+    }
+
+    if(pTimer->next == timer){
+        pTimer->next = timer->next;
+        if(timer->next == NULL){ // 这个组件是最后一个节点，移动 tail 指针
+            ltx_sys_timer_list_tail = &(pTimer_prev->next);
+        }else {
+            timer->next = NULL;
+        }
+    }
 }
 
-// 闹钟
+// ========== 闹钟相关 ==========
 void ltx_Alarm_add(struct ltx_Alarm_stu *alarm){
     
     if(alarm->next != NULL){ // 已经存在，不重复加入
         return ;
     }
 
+    /*
     struct ltx_Alarm_stu **pAlarm = &(ltx_sys_alarm_list.next);
     while((*pAlarm) != NULL){
         pAlarm = &((*pAlarm)->next);
@@ -72,9 +98,14 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm){
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pAlarm = alarm;
     alarm->next = NULL;
+    */
+    *ltx_sys_alarm_list_tail = alarm;
+    alarm->next = NULL;
+    ltx_sys_alarm_list_tail = &(alarm->next);
 }
 
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
+    /*
     struct ltx_Alarm_stu *pAlarm = ltx_sys_alarm_list.next;
 
     if(pAlarm == NULL){ // 闹钟不在活跃列表中，不做操作
@@ -98,20 +129,39 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
         alarm->next = NULL;
         alarm->flag = 0;
     }
+    */
 
+    struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
+    struct ltx_Alarm_stu *pAlarm_prev = pAlarm;
+
+    while((pAlarm->next != alarm) && (pAlarm->next != NULL)){
+        pAlarm_prev = pAlarm;
+        pAlarm = pAlarm->next;
+    }
+
+    if(pAlarm->next == alarm){
+        pAlarm->next = alarm->next;
+        if(alarm->next == NULL){ // 这个组件是最后一个节点，移动 tail 指针
+            ltx_sys_alarm_list_tail = &(pAlarm_prev->next);
+        }else {
+            alarm->next = NULL;
+        }
+    }
 }
 
 void ltx_Alarm_set_count(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
     alarm->tick_count_down = tick_count_down;
 }
 
-// 话题，感觉可以从轮询链表改为加入就绪队列，调度器只要弹出队列里的话题执行而不用每次轮询所有活跃话题的标志位，todo
+// ========== 话题相关 ==========
+// 感觉可以从轮询链表改为加入就绪队列，调度器只要弹出队列里的话题执行而不用每次轮询所有活跃话题的标志位，todo
 void ltx_Topic_add(struct ltx_Topic_stu *topic){
 
     if(topic->next != NULL){ // 已经存在，不重复加入
         return ;
     }
 
+    /*
     struct ltx_Topic_stu **pTopic = &(ltx_sys_topic_list.next);
     while((*pTopic) != NULL){
         pTopic = &((*pTopic)->next);
@@ -119,9 +169,15 @@ void ltx_Topic_add(struct ltx_Topic_stu *topic){
     // 如果在这里产生中断并添加元素，那么中断添加的元素会被下面这个顶掉，待改进
     *pTopic = topic;
     topic->next = NULL;
+    */
+
+    *ltx_sys_topic_list_tail = topic;
+    topic->next = NULL;
+    ltx_sys_topic_list_tail = &(topic->next);
 }
 
 void ltx_Topic_remove(struct ltx_Topic_stu *topic){
+    /*
     struct ltx_Topic_stu *pTopic = ltx_sys_topic_list.next;
 
     if(pTopic == NULL){ // 话题没有在活动列表中，不做操作
@@ -143,7 +199,24 @@ void ltx_Topic_remove(struct ltx_Topic_stu *topic){
         pTopic->next = topic->next;
         topic->next = NULL;
     }
+    */
 
+    struct ltx_Topic_stu *pTopic = &(ltx_sys_topic_list);
+    struct ltx_Topic_stu *pTopic_prev = pTopic;
+
+    while((pTopic->next != topic) && (pTopic->next != NULL)){
+        pTopic_prev = pTopic;
+        pTopic = pTopic->next;
+    }
+
+    if(pTopic->next == topic){
+        pTopic->next = topic->next;
+        if(topic->next == NULL){ // 这个组件是最后一个节点，移动 tail 指针
+            ltx_sys_topic_list_tail = &(pTopic_prev->next);
+        }else {
+            topic->next = NULL;
+        }
+    }
 }
 
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
@@ -186,11 +259,13 @@ void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscri
     }
 }
 
+// 发布话题
 void ltx_Topic_publish(struct ltx_Topic_stu *topic){ // 可安全地在中断中使用
     topic->flag = 1;
 }
 
-// 系统调度相关
+// ========== 系统调度相关 ==========
+// 系统嘀嗒，由 systick/硬件定时器 每 tick 调用一次
 void ltx_Sys_tick_tack(void){
     realTicks ++;
     if(!flag_schedule){
@@ -218,10 +293,12 @@ void ltx_Sys_tick_tack(void){
     }
 }
 
+// 获取当前 tick 计数
 TickType_t ltx_Sys_get_tick(void){
     return realTicks;
 }
 
+// 调度器，由主循环执行
 void ltx_Sys_scheduler(void){
     struct ltx_Topic_stu *pTopic;
     struct ltx_Topic_subscriber_stu *pSubscriber;
@@ -273,10 +350,12 @@ void ltx_Sys_scheduler(void){
     }
 }
 
+// 开启闹钟与定时器的调度（不影响 topic 的响应）
 void ltx_Sys_schedule_start(void){
     flag_schedule = 1;
 }
 
+// 关闭闹钟与定时器的调度（不影响 topic 的响应）
 void ltx_Sys_schedule_stop(void){
     flag_schedule = 0;
 }
