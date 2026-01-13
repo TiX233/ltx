@@ -1,8 +1,8 @@
-# ltx 裸机调度器
+# ltx 裸机调度器 V2
 
 目录：
 
-- [ltx 裸机调度器](#ltx-裸机调度器)
+- [ltx 裸机调度器 V2](#ltx-裸机调度器-v2)
   - [一、项目简介](#一项目简介)
   - [二、基础组件](#二基础组件)
     - [1、定时器：](#1定时器)
@@ -14,17 +14,27 @@
     - [3、script/脚本](#3script脚本)
     - [4、lock/锁](#4lock锁)
     - [5、event\_group/事件组](#5event_group事件组)
+    - [6、tickless/减少 systick 打断空闲休眠](#6tickless减少-systick-打断空闲休眠)
   - [四、移植](#四移植)
-  - [五、其他](#五其他)
+  - [五、空闲休眠与 tickless](#五空闲休眠与-tickless)
 
 ## 一、项目简介
 
-这是一个轻量级的裸机调度器，目前仅在几个个人项目中使用，具体如下：
+这是一个轻量级的事件驱动裸机调度器，目前仅在几个个人项目中使用，具体如下：
+
+ltx V1:
 
 * [我的世界红石_数字方案](https://oshwhub.com/realtix/minecraft_redstone_digital)
 * [反应力测试器](https://oshwhub.com/realtix/human_benchmark)
 * [我的世界米家拉杆](https://oshwhub.com/realtix/lever)
-* [唱片机](https://oshwhub.com/realtix/cover_display)
+* [歌曲封面显示唱片机](https://oshwhub.com/realtix/cover_display)
+
+ltx V2:
+
+* [裸机低功耗时钟]()
+
+ltx V1 由软件多定时器发展而来，通过加入闹钟和话题组件来提供事件驱动能力，但是它与大多数裸机调度器一样，调度器需要在主循环不断遍历活跃组件的事件链表，不仅时间复杂度为 O(n)，还无法提供安全的休眠能力。  
+为此，对 ltx 进行重构设计出了 ltx V2，V2 的事件产生不再是将活跃事件置位，而是将话题指针推入话题就绪链表队列，主循环不断弹出就绪话题并调用其回调即可，效率优化至 O(1)。如果需要空闲休眠功能，则可将调度函数放在一个最低优先级的软中断里而非主函数，并做一些基础配置，然后在主函数中调用空闲任务执行空闲休眠和一些 tickless 操作即可。
 
 ## 二、基础组件
 
@@ -35,6 +45,8 @@
 ### 2、闹钟：
 
 闹钟组件常用于某些事件的超时检查，最初设计用于中断按键消抖，例如某个按键中断发生后立即创建一个 20ms 后的闹钟，每次抖动都会将闹钟倒计时重置为 20ms，直到不抖动 20ms 后闹钟到时调用回调，通过设置标志位，可区分第一次边沿变化与后续抖动，提高中断按键的响应速度以及提供更优雅的消抖方案，例如 [反应力测试器项目](https://gitee.com/TiX233/reaction_tester) 可提供仅 1us 延迟的中断按键功能
+
+ltx V2 已为闹钟分配话题而非直接调用闹钟回调
 
 ### 3、发布订阅机制
 
@@ -75,19 +87,32 @@ app 与 task 都有四个运行状态变更接口，分别为 `初始化`、`暂
 锁在解锁时会发布一个话题。
 
 锁机制对于裸机意义不大，但是可以作为一个能保存标志位的 topic  
-未来将会为脚本增加一个等待锁解锁的功能
+未来可能会为脚本增加一个等待锁解锁的功能
 
 ### 5、event_group/事件组
 
 可设置等待超时时间以及 31 个等待的事件，设计用于等待所有硬件初始化完成，使用一个 uint32 的整数来存储所有事件，最高位用于判断事件组回调是否为超时所调用
 
+### 6、tickless/减少 systick 打断空闲休眠
+
+todo
+
 ## 四、移植
 
 如果仅需要基础组件，那么只需要移植 `ltx.c` 和 `ltx.h` 即可。
 
-因为是裸机调度器，所以移植几乎没有难度，最快仅需两步即可：
+因为是裸机调度器，所以移植几乎没有难度，最快仅需三步即可：
 
-1、系统嘀嗒
+1、配置开关中断宏
+
+在 `ltx_config.h` 中根据你的环境修改相应的开关中断宏：
+
+```c
+#define _LTX_IRQ_ENABLE()           __enable_irq()
+#define _LTX_IRQ_DISABLE()          __disable_irq()
+```
+
+2、系统嘀嗒
 
 在 1ms 周期的 systick 中断中调用如下函数：
 
@@ -95,15 +120,14 @@ app 与 task 都有四个运行状态变更接口，分别为 `初始化`、`暂
 ltx_Sys_tick_tack();
 ```
 
-2、在 main.c 最后调用如下函数：
+3、在 main.c 最后调用如下函数：
 
 
 ```c
-ltx_Sys_schedule_start();
 ltx_Sys_scheduler();
 ```
 
-3、例如：
+**例如：**
 
 ```c
 #include "main.h"
@@ -131,8 +155,6 @@ int main(void){
     ltx_App_resume(&app_device_init); // 运行 app
     */
 
-    // 开启调度
-    ltx_Sys_schedule_start();
     // 运行调度器
     ltx_Sys_scheduler(); // 调度器内部有一个无限循环，所以后续代码不会被运行
 
@@ -149,10 +171,97 @@ void SysTick_Handler(void)
     // 添加系统嘀嗒
     ltx_Sys_tick_tack();
 }
-
 ```
 
-## 五、其他
+## 五、空闲休眠与 tickless
 
-对于链表，暂时不是原子操作，**可能会在嵌套中断时产生意想不到的问题**，目前理论上只有 topic publish 能安全地在中断中使用，其余如添加移除闹钟等等链表操作可能存在风险，后续可能改进相关内容  
-如果目前有中断中增删组件需求，可专门创建一个话题，在中断中发布话题，让话题订阅者回调（linux 线程化中断下半部说是）操作组件
+一般在 rtos 中，都会提供一个最低优先级的 idle 任务，用户可以在这里将系统设置为休眠并等待中断唤醒，而且还能通过计算阻塞任务的延时时间来将 systick 中断推迟，减少 systick 对空闲休眠的打扰，也就是 tickless。  
+
+而在裸机中，一般无法实现这个操作。如果你想在遍历完事件队列发现没有任务需要执行，从而进入一个空闲任务进入休眠，那也是行不通的。因为遍历完到进入休眠是有一个空窗期的，这个期间如果产生了中断，那么调度器不会再进行事件遍历，而是进入休眠，那么这次中断的事件处理将会在下次系统被其他中断唤醒后一起处理，除非你能忍受你的中断可能要 1ms 后系统被 systick 唤醒再处理。  
+那么 tickless 就更棘手了，如果你计算最近一个将要到来的任务需要 100ms，那么本来你的倒霉中断可能要 1ms 再处理，这下需要 100ms 才能处理，和丢了没什么区别了。
+
+这个空窗期的存在是因为普通任务和空闲任务是同级别的，所以你只能尽可能减小这个空窗期来减缓问题或者抬升普通任务的优先级来解决问题。
+
+为了减缓这个问题，ltx V2 在发布事件时，不再是置位标志位，而是将话题指针推入就绪队列，主循环不再是遍历所有任务的事件链表，而是直接弹出队列头，时间复杂度由 O(n) 优化为 O(1)。
+
+为了解决这个问题，ltx V2 的调度器被设计为不仅可以运行在主循环中，也可以运行在一个最低优先级软中断里，样例如下：
+
+```c
+#include "main.h"
+#include "ltx.h"
+// #include "myAPP_system.h"
+// #include "myAPP_device_init.h"
+
+// ...
+
+int main(void){
+    // 初始化外设
+    // ...
+
+    // 创建组件
+    // ...
+
+    /* 如果想拥有更强的业务隔离与管理能力，那么还可以额外引入 ltx_app 组件
+    // 创建 app
+    // 系统调试 app
+    ltx_App_init(&app_system); // 初始化 app
+    ltx_App_resume(&app_system); // 运行 app
+
+    // 硬件初始化 app
+    ltx_App_init(&app_device_init); // 初始化 app
+    ltx_App_resume(&app_device_init); // 运行 app
+    */
+
+    // 这里不再直接调用调度器了，而是直接运行空闲任务
+    ltx_Sys_idle_task(); // 空闲任务内部有一个无限循环，所以后续代码不会被运行
+
+    while(1);
+}
+
+// ...
+
+// systick 中断服务函数
+void SysTick_Handler(void)
+{
+    HAL_IncTick();
+
+    // 添加系统嘀嗒
+    ltx_Sys_tick_tack();
+}
+
+void PendSV_handler(void){
+    // 在这里运行调度器，但是需要对 ltx_config.h 做一些修改，不然空闲任务无法运行
+    ltx_Sys_scheduler();
+}
+
+void ltx_Sys_idle_task(void){
+    while(1){
+        // 直接进入休眠，等待中断唤醒，或者执行一些 tickless 操作
+        __WFI();
+    }
+}
+```
+
+下面是 `ltx_config.h` 的原配置：
+
+```c
+// 设置调度标志位，表示需要进行调度，可设置为置位 PendSV 标志位
+#define _LTX_SET_SCHEDULE_FLAG()    do{}while(0)
+// 获取调度标志位，可设置为读 PendSV 标志位
+#define _LTX_GET_SCHEDULE_FLAG      1
+// 清除调度标志位，可设置为清除 PendSV 标志位
+#define _LTX_CLEAR_SCHEDULE_FLAG()  do{}while(0)
+```
+
+对 `ltx_config.h` 的修改样例：
+
+```c
+// 设置为置位 PendSV 标志位，触发其运行
+#define _LTX_SET_SCHEDULE_FLAG()    do{SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;}while(0)
+// 设置为读 PendSV 标志位
+#define _LTX_GET_SCHEDULE_FLAG      (SCB->ICSR & SCB_ICSR_PENDSVSET_Msk)
+// 设置为清除 PendSV 标志位
+#define _LTX_CLEAR_SCHEDULE_FLAG()  do{SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk;}while(0)
+```
+
+这种处理已经非常接近 rtos 了，不过 rtos 里面 PendSV 只承担切换上下文作用，不运行任务，而 ltx V2 则是在这里弹出任务并运行，仅为了抬升优先级。

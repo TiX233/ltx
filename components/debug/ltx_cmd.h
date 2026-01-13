@@ -2,11 +2,12 @@
  * @file ltx_cmd.h
  * @author realTiX
  * @brief 对上位机发来的命令进行处理用
- * @version 0.3
+ * @version 2.0
  * @date 2025-08-16 (0.2)
  *       2025-11-24 (0.3，纳入 ltx 可选组件)
+ *       2026-01-13 (2.0，适配 ltx V2)
  * 
- * @copyright Copyright (c) 2025
+ * @copyright Copyright (c) 2026
  * 
  */
 

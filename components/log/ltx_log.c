@@ -1,4 +1,4 @@
-    #include "ltx_log.h"
+#include "ltx_log.h"
 
 int ltx_Log_init(void){
     SEGGER_RTT_Init();

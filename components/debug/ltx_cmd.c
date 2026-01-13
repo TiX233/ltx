@@ -102,17 +102,17 @@ void cmd_cb_echo(uint8_t argc, char *argv[]){
         if(my_str_cmp("-h", argv[1]) == 0){
             goto Useage_echo;
         }
-        LOG_FMT(PRINT_LOG"%s\n", argv[1]);
+        LTX_LOG_INFO("%s\n", argv[1]);
     }else {
-        LOG_FMT(PRINT_WARNNING"Need param to echo!\n");
+        LTX_LOG_WARN("Need param to echo!\n");
     }
     return ;
 Useage_echo:
-    LOG_FMT(PRINT_LOG"Useage: This function will return the first param to test uart\n");
+    LTX_LOG_INFO("Useage: This function will return the first param to test uart\n");
 }
 
 void cmd_cb_hello(uint8_t argc, char *argv[]){
-    LOG_STR(PRINT_LOG"Ciallo World~ (∠・ω< )⌒☆\n");
+    LTX_LOG_STR(LOG_INFO"Ciallo World~ (∠・ω< )⌒☆\n");
 }
 
 void cmd_cb_help(uint8_t argc, char *argv[]){
@@ -121,30 +121,43 @@ void cmd_cb_help(uint8_t argc, char *argv[]){
     if(argc > 1){
         for(i = 0; cmd_list[i].cmd_name[0] != ' '; i ++){
             if(my_str_cmp(cmd_list[i].cmd_name, argv[1]) == 0){
-                LOG_FMT(PRINT_LOG"%s   -   %s\n", cmd_list[i].cmd_name, cmd_list[i].brief);
+                LTX_LOG_INFO("%s   -   %s\n", cmd_list[i].cmd_name, cmd_list[i].brief);
                 return;
             }
         }
     }else {
         for(i = 0; cmd_list[i].cmd_name[0] != ' '; i ++){
-            LOG_FMT(PRINT_LOG"%s:\n\t%s\n", cmd_list[i].cmd_name, cmd_list[i].brief);
+            LTX_LOG_INFO("%s:\n\t%s\n", cmd_list[i].cmd_name, cmd_list[i].brief);
         }
 
         return ;
     }
 
-    LOG_FMT(PRINT_WARNNING"Unknown cmd: %s, Type /help to list all commands\n", argv[1]);
+    LTX_LOG_WARN("Unknown cmd: %s, Type /help to list all commands\n", argv[1]);
 }
 
+// V2 配个闹钟真麻烦，甚至不如直接创建个脚本来得方便，先这样吧
 void alarm_cb_cmd_test_alarm(void *param){
-    LOG_FMT(PRINT_LOG"Alarm ring: %d\n", ltx_Sys_get_tick());
+    LTX_LOG_INFO("Alarm ring: %d\n", ltx_Sys_get_tick());
 }
+struct ltx_Topic_subscriber_stu alarm_cmd_test_subscriber;
 struct ltx_Alarm_stu alarm_cmd_test = {
-    .flag = 0,
-    
     .tick_count_down = 0,
-    .callback_alarm = alarm_cb_cmd_test_alarm,
-
+    .topic = {
+        .flag_is_pending = 0,
+        .subscriber_head = {
+            .prev = NULL,
+            .next = &alarm_cmd_test_subscriber
+        },
+        .subscriber_tail = &alarm_cmd_test_subscriber,
+        .next = NULL
+    },
+    .prev = NULL,
+    .next = NULL
+};
+struct ltx_Topic_subscriber_stu alarm_cmd_test_subscriber = {
+    .callback_func = alarm_cb_cmd_test_alarm,
+    .prev = &(alarm_cmd_test.topic.subscriber_head),
     .next = NULL,
 };
 
@@ -160,15 +173,14 @@ void cmd_cb_alarm(uint8_t argc, char *argv[]){
         return ;
     }
 
-    ltx_Alarm_set_count(&alarm_cmd_test, ticks_alarm);
-    ltx_Alarm_add(&alarm_cmd_test);
+    ltx_Alarm_add(&alarm_cmd_test, ticks_alarm);
 
-    LOG_FMT(PRINT_LOG"Tick now: %d\n", ltx_Sys_get_tick());
-    LOG_FMT(PRINT_LOG"Alarm will ring after %d ticks(%d)\n", ticks_alarm, ticks_alarm + ltx_Sys_get_tick());
+    LTX_LOG_INFO("Tick now: %d\n", ltx_Sys_get_tick()); // 这条语句可能会耗时，所以下一条语句的 get tick 可能不是这一次的，先不管
+    LTX_LOG_INFO("Alarm will ring after %d ticks(%d)\n", ticks_alarm, ticks_alarm + ltx_Sys_get_tick());
 
     return ;
 Useage_alarm:
-    LOG_FMT(PRINT_LOG"Useage: %s <ticks>\n", argv[0]);
+    LTX_LOG_INFO("Useage: %s <ticks>\n", argv[0]);
 }
 
 void cmd_cb_reboot(uint8_t argc, char *argv[]){
@@ -216,32 +228,32 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
     struct ltx_Task_stu **pTask;
     switch(i){
         case RA_list_app:
-            LOG_STR(PRINT_LOG"All apps:\n");
+            LTX_LOG_STR(LOG_INFO"All apps:\n");
             while((*pApp) != NULL){
-                LOG_FMT("\t%s: %s\n", (*pApp)->name, (*pApp)->status?"running":"pause");
+                LTX_LOG_FMT("\t%s: %s\n", (*pApp)->name, (*pApp)->status?"running":"pause");
                 pApp = &((*pApp)->next);
             }
             break;
             
         case RA_list_task:
             if(argc < 3){
-                LOG_STR(PRINT_WARNNING"Please provide app name!\n");
+                LTX_LOG_STR(LOG_WARNNING"Please provide app name!\n");
                 goto Useage_ltx_app;
             }
             while((*pApp) != NULL){
                 if(my_str_cmp((*pApp)->name, argv[2]) == 0){
                     
                     pTask = &((*pApp)->task_list);
-                    LOG_STR(PRINT_LOG"All tasks:\n");
+                    LTX_LOG_STR(LOG_INFO"All tasks:\n");
                     while((*pTask) != NULL){
-                        LOG_FMT("\t%s: %s\n", (*pTask)->name, (*pTask)->status?"running":"pause");
+                        LTX_LOG_FMT("\t%s: %s\n", (*pTask)->name, (*pTask)->status?"running":"pause");
                         pTask = &((*pTask)->next);
                     }
                     return ;
                 }
                 pApp = &((*pApp)->next);
             }
-            LOG_FMT(PRINT_WARNNING"App(%s) not found!\n", argv[2]);
+            LTX_LOG_WARN("App(%s) not found!\n", argv[2]);
             
             break;
             
@@ -269,12 +281,12 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
 
                             break;
                     }
-                    LOG_FMT(PRINT_LOG"App(%s) set okay\n", argv[2]);
+                    LTX_LOG_INFO("App(%s) set okay\n", argv[2]);
                     return ;
                 }
                 pApp = &((*pApp)->next);
             }
-            LOG_FMT(PRINT_WARNNING"App(%s) not found!\n", argv[2]);
+            LTX_LOG_WARN("App(%s) not found!\n", argv[2]);
 
             break;
             
@@ -293,7 +305,7 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
 
                             switch(i){
                                 case RA_kill_task:
-                                    ltx_Task_destroy((*pTask));
+                                    ltx_Task_destroy((*pTask), *pApp);
 
                                     break;
 
@@ -307,22 +319,22 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
                                     
                                     break;
                             }
-                            LOG_FMT(PRINT_LOG"Task(%s) set okay\n", argv[2]);
+                            LTX_LOG_INFO("Task(%s) set okay\n", argv[2]);
                             return ;
                         }
                         pTask = &((*pTask)->next);
                     }
-                    LOG_FMT(PRINT_WARNNING"Task(%s) not found!\n", argv[3]);
+                    LTX_LOG_WARN("Task(%s) not found!\n", argv[3]);
                     return ;
                 }
                 pApp = &((*pApp)->next);
             }
-            LOG_FMT(PRINT_WARNNING"App(%s) not found!\n", argv[2]);
+            LTX_LOG_WARN("App(%s) not found!\n", argv[2]);
 
             break;
 
         default:
-            LOG_FMT(PRINT_WARNNING"Unknown option:%s\n", argv[1]);
+            LTX_LOG_WARN("Unknown option:%s\n", argv[1]);
             goto ltx_app_print_all_option;
             break;
     }
@@ -330,11 +342,11 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
     return ;
 
 Useage_ltx_app:
-    LOG_FMT(PRINT_LOG"Useage: %s <option> [app_name] [task_name]\n", argv[0]);
+    LTX_LOG_INFO("Useage: %s <option> [app_name] [task_name]\n", argv[0]);
 ltx_app_print_all_option:
-    LOG_STR(PRINT_LOG"All options:\n");
+    LTX_LOG_STR(LOG_INFO"All options:\n");
     for(uint8_t j = 0; options[j][0] != ' '; j ++){
-        LOG_FMT("\t%s\n", options[j]);
+        LTX_LOG_FMT("\t%s\n", options[j]);
     }
 }
 
@@ -343,7 +355,7 @@ ltx_app_print_all_option:
 // 心跳计数数据更新打印回调
 void print_cb_heart_beat(void *param){
     extern uint32_t heart_beat_count;
-    LOG_FMT("Heartbeat: %d\n", heart_beat_count);
+    LTX_LOG_FMT("Heartbeat: %d\n", heart_beat_count);
 }
 
 // 可供打印的数据对象
@@ -354,10 +366,11 @@ struct {
 } print_data_item_list[] = {
     {
         .item_name = "heart_beat",
-        .topic = &(task_heart_beat.topic),
+        .topic = &(task_heart_beat.timer.topic),
         .subscriber = {
             .callback_func = print_cb_heart_beat,
 
+            .prev = NULL,
             .next = NULL,
         },
     },
@@ -395,48 +408,48 @@ enum print_option_e{
     switch(i){
         case PO_START:
             if(argc != 3){
-                LOG_STR(PRINT_WARNNING"Please enter the data name correctly!\n");
+                LTX_LOG_STR(LOG_WARNNING"Please enter the data name correctly!\n");
 
                 goto Useage_print;
             }
 
-            // LOG_STR(PRINT_DEBUG"going into PO_START\n");
+            // LTX_LOG_STR(LOG_DEBUG"going into PO_START\n");
 
             for(i = 0; print_data_item_list[i].item_name[0] != ' '; i ++){
                 if(my_str_cmp(print_data_item_list[i].item_name, argv[2]) == 0){
-                    LOG_FMT(PRINT_LOG"Start track data \"%s\"...\n", argv[2]);
+                    LTX_LOG_INFO("Start track data \"%s\"...\n", argv[2]);
 
                     ltx_Topic_subscribe(print_data_item_list[i].topic, &(print_data_item_list[i].subscriber));
                     return ;
                 }
             }
 
-            LOG_FMT(PRINT_WARNNING"Data name \"%s\" not matched! Use <-list> option to list all data name.\n", argv[2]);
+            LTX_LOG_WARN("Data name \"%s\" not matched! Use <-list> option to list all data name.\n", argv[2]);
 
             break;
 
         case PO_STOP:
-            // LOG_STR(PRINT_DEBUG"going into PO_STOP\n");
+            // LTX_LOG_STR(LOG_DEBUG"going into PO_STOP\n");
 
             for(i = 0; print_data_item_list[i].item_name[0] != ' '; i ++){
                 ltx_Topic_unsubscribe(print_data_item_list[i].topic, &(print_data_item_list[i].subscriber));
             }
-            LOG_STR(PRINT_LOG"All data tracking has been stopped.\n");
+            LTX_LOG_STR(LOG_INFO"All data tracking has been stopped.\n");
 
             break;
 
         case PO_LIST:
-            // LOG_STR(PRINT_DEBUG"going into PO_LIST\n");
+            // LTX_LOG_STR(LOG_DEBUG"going into PO_LIST\n");
 
-            LOG_STR(PRINT_LOG"All data item name:\n");
+            LTX_LOG_STR(LOG_INFO"All data item name:\n");
             for(i = 0; print_data_item_list[i].item_name[0] != ' '; i ++){
-                LOG_FMT("\t%s\n", print_data_item_list[i].item_name);
+                LTX_LOG_FMT("\t%s\n", print_data_item_list[i].item_name);
             }
 
             break;
 
         default:
-            LOG_FMT(PRINT_WARNNING"Unknown option: %s\n", argv[1]);
+            LTX_LOG_WARN("Unknown option: %s\n", argv[1]);
 
             goto Useage_print;
             break;
@@ -445,7 +458,7 @@ enum print_option_e{
     return ;
 
 Useage_print:
-    LOG_FMT(PRINT_LOG"Useage: %s <-start/-stop/-list> [data_name]\n", argv[0]);
+    LTX_LOG_INFO("Useage: %s <-start/-stop/-list> [data_name]\n", argv[0]);
 }
 
 // 读写某些参数的命令
@@ -457,7 +470,7 @@ void cmd_cb_param(uint8_t argc, char *argv[]){
     switch(argv[1][1]){
         case 'r':
             if(argc < 3){
-                LOG_STR(PRINT_WARNNING"Please enter param name! You can use -l option to list all param.\n");
+                LTX_LOG_STR(LOG_WARNNING"Please enter param name! You can use -l option to list all param.\n");
                 return ;
             }
 
@@ -469,13 +482,13 @@ void cmd_cb_param(uint8_t argc, char *argv[]){
                 }
             }
 
-            LOG_FMT(PRINT_WARNNING"Param '%s' was not found, use -l to list all param\n", argv[2]);
+            LTX_LOG_WARN("Param '%s' was not found, use -l to list all param\n", argv[2]);
 
             break;
 
         case 'w':
             if(argc < 4){
-                LOG_STR(PRINT_WARNNING"Please enter param name and new value! You can use -l option to list all param.\n");
+                LTX_LOG_STR(LOG_WARNNING"Please enter param name and new value! You can use -l option to list all param.\n");
                 return ;
             }
 
@@ -487,20 +500,20 @@ void cmd_cb_param(uint8_t argc, char *argv[]){
                 }
             }
 
-            LOG_FMT(PRINT_WARNNING"Param '%s' was not found, use -l to list all param\n", argv[2]);
+            LTX_LOG_WARN("Param '%s' was not found, use -l to list all param\n", argv[2]);
 
             break;
 
         case 'l':
-            LOG_STR(PRINT_LOG"All rw-able parameter:\n");
+            LTX_LOG_STR(LOG_INFO"All rw-able parameter:\n");
             for(uint8_t i = 0; param_list[i].param_name[0] != ' '; i ++){
-                LOG_FMT(PRINT_LOG"\t%s\n", param_list[i].param_name);
+                LTX_LOG_INFO("\t%s\n", param_list[i].param_name);
             }
 
             break;
 
         default:
-            LOG_FMT(PRINT_WARNNING"Unknown option: %s\n", argv[1]);
+            LTX_LOG_WARN("Unknown option: %s\n", argv[1]);
             goto Useage_param;
             break;
     }
@@ -508,8 +521,8 @@ void cmd_cb_param(uint8_t argc, char *argv[]){
     return ;
     
 Useage_param:
-    LOG_FMT(PRINT_LOG"Useage: %s <-r/-s/-l> [<param_name> [new_value]]\n", argv[0]);
-    LOG_STR(PRINT_LOG"\t-r: read, -w: write, -l: list\n");
+    LTX_LOG_INFO("Useage: %s <-r/-s/-l> [<param_name> [new_value]]\n", argv[0]);
+    LTX_LOG_STR(LOG_INFO"\t-r: read, -w: write, -l: list\n");
 }
 
 
@@ -522,8 +535,8 @@ void ltx_Cmd_process(char *cmd){
     };
 
     if(!(cmd[0] == '/' || cmd[0] == '#')){ // 非指令
-        LOG_FMT(PRINT_WARNNING"Unknow format!\n");
-        // LOG_FMT(PRINT_DEBUG"%s\n", cmd);
+        LTX_LOG_WARN("Unknow format!\n");
+        // LTX_LOG_DEBG("%s\n", cmd);
         return;
     }
 
@@ -541,12 +554,12 @@ void ltx_Cmd_process(char *cmd){
                 argv[0] = cmd;
                 cmd_list[i].cmd_cb(index, argv);
             }else {
-                LOG_FMT(PRINT_ERROR"Callback function of \"%s\" is not define!\n", argv[0]);
+                LTX_LOG_ERRO("Callback function of \"%s\" is not define!\n", argv[0]);
             }
             return;
         }
     }
 
-    LOG_FMT(PRINT_WARNNING"Unknown cmd: %s\n", argv[0]);
-    LOG_FMT(PRINT_LOG"Type /help to list all commands\n");
+    LTX_LOG_WARN("Unknown cmd: %s\n", argv[0]);
+    LTX_LOG_INFO("Type /help to list all commands\n");
 }

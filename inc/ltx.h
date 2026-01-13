@@ -1,8 +1,8 @@
 /**
  * @file ltx.h
  * @author realTiX
- * @brief 简易的裸机调度框架，主要由定时器、闹钟和发布订阅机制构成。1tick = 1ms
- * @version 0.16
+ * @brief 简易的裸机调度框架，主要由定时器、闹钟和发布订阅机制构成。调度器可运行在软中断中，实现空闲休眠能力
+ * @version 2.0
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -19,6 +19,7 @@
  *       2026-01-04 (0.14, 恢复添加组件时置新元素 next 为 null，不然不能避免重复添加导致的连成环（失忆这一块）)
  *       2026-01-05 (0.15, 添加组件结构体默认参数配置宏；修复潜在问题：在订阅者回调中取消订阅可能导致订阅者链表后续所有订阅者丢失此次对话题的响应)
  *       2026-01-06 (0.16, 增加活跃组件链表尾指针，将添加组件效率由 O(n) 优化为 O(1))
+ *       2026-01-12 (2.0, 重构，不再遍历组件活跃链表而是弹出事件队列头，效率由 O(n) 优化为 O(1)，且为 tickless 做准备；增删组件效率也由 O(n) 优化为 O(1)；组件增删升级原子操作，可在中断使用)
  * 
  * @copyright Copyright (c) 2026
  * 
@@ -28,70 +29,73 @@
 #define __LTX_H__
 
 #include "main.h"
+#include "ltx_config.h"
 
 // 从结构体成员计算结构体指针
 // 好像不能直接用 linux 里的，从 rtthread 里偷一个
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - (unsigned long)(&((type *)0)->member)))
 
-
 // 组件结构体初始化默认参数
-#define _LTX_TOPIC_DEAFULT_CONFIG                       {.flag = 0, .subscriber = NULL, .next = NULL}
-#define _LTX_SUBSCRIBER_CONFIG(callback)                {.callback_func = callback, .next = NULL}
-#define _LTX_ALARM_CONFIG(tick_count_down,callback)     {.flag = 0, .tick_count_down = tick_count_down, .callback_alarm = callback, .next = NULL}
+#define _LTX_TOPIC_DEAFULT_CONFIG(self)                 {.flag_is_pending = 0, .subscriber_head = {.prev = NULL, .next = NULL}, .subscriber_tail = &(self.subscriber_head), .next = NULL}
+#define _LTX_SUBSCRIBER_DEAFULT_CONFIG(callback)        {.callback_func = callback, .prev = NULL, .next = NULL}
+#define _LTX_ALARM_DEAFULT_CONFIG                       {.tick_count_down = 0, .topic = _LTX_TOPIC_DEAFULT_CONFIG, .prev = NULL, .next = NULL}
 
 typedef uint32_t TickType_t;
 typedef uint16_t UsType_t;
 
+// 话题订阅者
 struct ltx_Topic_subscriber_stu {
-
     void (*callback_func)(void *param);
 
+    struct ltx_Topic_subscriber_stu *prev;
     struct ltx_Topic_subscriber_stu *next;
 };
 
+// 话题
 struct ltx_Topic_stu {
-    uint8_t flag;
-    struct ltx_Topic_subscriber_stu *subscriber;
+    uint8_t flag_is_pending; // 话题就绪标志位，只有使用 ltx_Topic_publish 才会将其置一，手动置一无效。表示在就绪队列但是还没执行，此时手动置零可以取消这次执行
+
+    struct ltx_Topic_subscriber_stu subscriber_head;
+    struct ltx_Topic_subscriber_stu *subscriber_tail;
 
     struct ltx_Topic_stu *next;
 };
 
+// 定时器
 struct ltx_Timer_stu {
-    
     TickType_t tick_counts; // tick counts 会在每个 tick 减一，当减为 0 时，会赋值为 tick reload，并且发布 Topic
     TickType_t tick_reload; // 重载值/周期，赋值为 0 则相当于设置为 TickType_t 的最大值
 
-    struct ltx_Topic_stu *topic; // 定时器触发后会给所有订阅者发送通知
+    struct ltx_Topic_stu topic; // 定时器触发后会给所有订阅者发送通知
 
+    struct ltx_Timer_stu *prev;
     struct ltx_Timer_stu *next;
 };
 
+// 闹钟
 struct ltx_Alarm_stu {
-    uint8_t flag; // 响铃标志位
-    TickType_t tick_count_down; // 闹钟倒计时，变为零时 flag ++，以通知前台调用回调函数
+    TickType_t tick_count_down; // 闹钟倒计时，变为零时发布话题通知前台调用订阅者回调函数
 
-    void (*callback_alarm)(void *param); // 闹钟到时间后会调用相应回调函数
+    struct ltx_Topic_stu topic; // 闹钟触发后会给所有订阅者发送通知
     
+    struct ltx_Alarm_stu *prev;
     struct ltx_Alarm_stu *next;
 };
 
 void ltx_Timer_add(struct ltx_Timer_stu *timer);
 void ltx_Timer_remove(struct ltx_Timer_stu *timer);
 
-void ltx_Alarm_add(struct ltx_Alarm_stu *alarm);
+void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down);
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm);
-void ltx_Alarm_set_count(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down);
 
-void ltx_Topic_add(struct ltx_Topic_stu *topic);
-void ltx_Topic_remove(struct ltx_Topic_stu *topic);
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
 void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
 void ltx_Topic_publish(struct ltx_Topic_stu *topic);
 
 void ltx_Sys_tick_tack(void);
 TickType_t ltx_Sys_get_tick(void);
-static inline UsType_t ltx_Sys_get_us(void){
+static inline UsType_t ltx_Sys_get_us(void){ // 适用 ARM Cortex-M
     uint32_t v = SysTick->VAL;
     v *= 1000;
     v /= SysTick->LOAD;
@@ -99,8 +103,9 @@ static inline UsType_t ltx_Sys_get_us(void){
     return 1000 - v;
 }
 
+// 调度器，一般放在 main 函数运行，也可以放在 PendSV 之类的最低优先级的软中断里
 void ltx_Sys_scheduler(void);
-void ltx_Sys_schedule_start(void);
-void ltx_Sys_schedule_stop(void);
+// 空闲任务，如果 ltx_Sys_scheduler 放在软中断里，那么这个才能使用并且放在 main 函数最后
+void ltx_Sys_idle_task(void);
 
 #endif // __LTX_H__
