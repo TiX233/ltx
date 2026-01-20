@@ -64,16 +64,13 @@ int ltx_Task_add_to_app(struct ltx_Task_stu *task, struct ltx_App_stu *app, cons
 
     task->name = task_name;
 
-    struct ltx_Task_stu *pTask = app->task_list;
-    if(pTask == NULL){
-        pTask->next = task;
-
-        return 0;
+    // 添加到 app 的任务列表
+    struct ltx_Task_stu **pTask = &(app->task_list);
+    while((*pTask) != NULL){
+        pTask = &((*pTask)->next);
     }
-    while(pTask->next != NULL){
-        pTask = pTask->next;
-    }
-    pTask->next = task;
+    *pTask = task;
+    task->next = NULL;
 
     return 0;
 }
