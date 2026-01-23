@@ -2,12 +2,13 @@
 
 // 锁通用超时回调
 void _ltx_Lock_alarm_cb(void *param){
-    struct ltx_Lock_stu *pLock = container_of(param, struct ltx_Lock_stu, alarm_time_out);
+    struct ltx_Lock_stu *pLock = container_of(param, struct ltx_Lock_stu, subscriber_alarm);
 
     // 调用用户定义锁超时回调
-    if(pLock->flag_is_locked){ // 不记得为什么要写这个 if 了
-        pLock->timeout_callback(pLock);
-    }
+    // if(pLock->flag_is_locked){ // 不记得为什么要写这个 if 了 // 想起来了，因为 v1 中断不安全，所以让主循环去等闹钟超时自动移除，取消标志位而不是在中断中移除闹钟
+    //     pLock->timeout_callback(pLock);
+    // }
+    pLock->timeout_callback(pLock);
 }
 
 #if 0
@@ -89,6 +90,7 @@ void ltx_Lock_release(struct ltx_Lock_stu *lock){
         ltx_Topic_publish(&lock->_topic);
 #else
         // ltx_Alarm_remove(&lock->_alarm); 等闹钟超时自动 remove
+        ltx_Alarm_remove(&lock->alarm_time_out); // 不用等了，v2 中断安全而且双链表删元素更快
         ltx_Topic_publish(&lock->topic_lock_release);
 #endif
     // }

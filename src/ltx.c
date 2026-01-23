@@ -75,6 +75,9 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
     ltx_sys_alarm_list_tail->next = alarm;
     ltx_sys_alarm_list_tail = alarm;
 
+    // 补充标志位清除，避免已经触发且移除但还没执行的闹钟重新被添加后不推迟执行
+    alarm->topic.flag_is_pending = 0; // 就绪标志位清零
+
     _LTX_IRQ_ENABLE();
 }
 
