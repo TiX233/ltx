@@ -33,10 +33,9 @@ void _ltx_Script_subscriber_cb(void *param){
  * @brief   初始化脚本函数，同一脚本只能调用一次。初始化后需要用户调用一次 ltx_Script_resume 函数该脚本才会开始运行。初次运行会进入 case 0
  * @param   script: 脚本对象指针
  * @param   callback: 脚本回调
- * @param   delay_ticks: 调用 ltx_Script_resume 函数后延时 delay_ticks 后再执行首个步骤（case 0），可设置为 0，表示尽快执行
  * @retval  非 0 代表初始化失败
  */
-int ltx_Script_init(struct ltx_Script_stu *script, void (*callback)(struct ltx_Script_stu *), TickType_t delay_ticks){
+int ltx_Script_init(struct ltx_Script_stu *script, void (*callback)(struct ltx_Script_stu *)){
 
     if(script == NULL || callback == NULL){
         return -1;
@@ -55,7 +54,7 @@ int ltx_Script_init(struct ltx_Script_stu *script, void (*callback)(struct ltx_S
 
     script->alarm_next_run.prev = NULL;
     script->alarm_next_run.next = NULL;
-    script->alarm_next_run.tick_count_down = delay_ticks;
+    // script->alarm_next_run.diff_tick = delay_ticks;
 
     script->alarm_next_run.topic.flag_is_pending = 0;
     script->alarm_next_run.topic.next = NULL;
@@ -149,22 +148,32 @@ void ltx_Script_pause(struct ltx_Script_stu *script){
 /**
  * @brief   恢复正在暂停的脚本
  * @param   script: 脚本对象指针
+ * @param   delay_ticks: 调用 ltx_Script_resume 函数后延时 delay_ticks 后再执行下个步骤，可设置为 0，表示尽快执行
  * @retval  无
  */
-void ltx_Script_resume(struct ltx_Script_stu *script){
+void ltx_Script_resume(struct ltx_Script_stu *script, TickType_t delay_ticks){
     if(script->triger_type == SC_TRIGER_UNKNOWN){ // 第一次执行
-        if(script->alarm_next_run.tick_count_down == 0){ // 启动延时时间为 0，要求尽快执行
+        if(script->alarm_next_run.diff_tick == 0){ // 启动延时时间为 0，要求尽快执行
             // script->triger_type = SC_TRIGER_TIMEOUT; // 不用管
             // 直接推入就绪队列
             ltx_Topic_publish(&(script->alarm_next_run.topic));
         }else { // 启动延时时间非 0
-            ltx_Alarm_add(&(script->alarm_next_run), script->alarm_next_run.tick_count_down);
+            ltx_Alarm_add(&(script->alarm_next_run), script->alarm_next_run.diff_tick);
         }
 
         return ;
     }
-    // 不是第一次执行
-    ltx_Alarm_add(&(script->alarm_next_run), script->alarm_next_run.tick_count_down);
+
+    if(!delay_ticks){ // 要求尽快执行
+        ltx_Topic_publish(&(script->alarm_next_run.topic));
+        // 不管
+        // if(script->next_step_type == SC_STEP_WAIT_TOPIC){
+        //     ltx_Topic_subscribe(script->topic_wait_for, &(script->subscriber_topic));
+        // }
+        return ;
+    }
+
+    ltx_Alarm_add(&(script->alarm_next_run), delay_ticks);
     if(script->next_step_type == SC_STEP_WAIT_TOPIC){
         ltx_Topic_subscribe(script->topic_wait_for, &(script->subscriber_topic));
     }
@@ -173,12 +182,12 @@ void ltx_Script_resume(struct ltx_Script_stu *script){
 /**
  * @brief   让已经初始化的 正在运行/运行结束 的脚本从头运行，此函数会调用一次脚本回调，以便用户在内部释放资源；
  *          调用此函数后需要调用一次 ltx_Script_resume 才能在 delay_ticks 后开始脚本运行；
- *          也可用作对某个运行中脚本的 kill 操作
+ *          也可用作对某个运行中脚本的 kill 操作；
+ *          最好不要在中断中直接使用
  * @param   script: 脚本对象指针
- * @param   delay_ticks: 调用 ltx_Script_resume 函数后延时 delay_ticks 后再执行首个步骤（case 0），可设置为 0，表示尽快执行
  * @retval  无
  */
-void ltx_Script_reset(struct ltx_Script_stu *script, TickType_t delay_ticks){
+void ltx_Script_reset(struct ltx_Script_stu *script){
     ltx_Script_pause(script);
 
     // 触发类型设置为复位，调用一次脚本回调，把复位信息通知给脚本状态机，让他自己去释放资源什么的，不用外部插手
@@ -188,5 +197,5 @@ void ltx_Script_reset(struct ltx_Script_stu *script, TickType_t delay_ticks){
     script->step_now = 0;
     script->triger_type = SC_TRIGER_UNKNOWN;
     script->next_step_type = SC_STEP_WAIT_DELAY;
-    script->alarm_next_run.tick_count_down = delay_ticks;
+    // script->alarm_next_run.diff_tick = delay_ticks;
 }

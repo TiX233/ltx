@@ -1,11 +1,14 @@
 /**
  * @file ltx_script.h
  * @author realTiX
- * @brief ltx 可选事件组组件。
- * @version 2.0
+ * @brief ltx 可选事件组组件。目前仅支持事件与，不支持事件或
+ * @version 3.0
  * @date 2025-12-03 (0.1，初步完成功能设计)
  *       2025-12-08 (0.2，修复没有对成员变量初始化的恶性 bug)
+ * 
  *       2026-01-13 (2.0，重构，适配 ltx V2)
+ * 
+ *       2026-01-28 (3.0，未作改动，仅对其版本号，直接支持 ltx V3)
  * 
  * @copyright Copyright (c) 2026
  * 

@@ -7,9 +7,9 @@ typedef uint32_t TickType_t;
 typedef uint16_t UsType_t;
 
 // 需要空闲任务则打开此宏，并将调度器从主循环转移到最低优先级的软中断中
-#define ltx_cfg_USE_IDLE_TASK
+// #define ltx_cfg_USE_IDLE_TASK
 // 需要 tickless 则打开此宏，前提是必须打开空闲任务宏
-#define ltx_cfg_USE_TICKLESS
+// #define ltx_cfg_USE_TICKLESS
 
 // 选择一个对应架构的配置文件
 #include "ltx_arch_arm_cortex_m.h"

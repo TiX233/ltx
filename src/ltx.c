@@ -161,7 +161,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
 TAG_set_tickless:    
     intervalTicks = (ltx_sys_alarm_list.next->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : ltx_sys_alarm_list.next->diff_tick;
     // _ltx_Sys_systick_set_reload((_ltx_Sys_systick_get_reload()%_SYSTICK_COUNT_PER_TICK) + (intervalTicks-1)*_SYSTICK_COUNT_PER_TICK - 1);
-    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - _ltx_Sys_systick_get_reload()); // - 1);
+    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - (_ltx_Sys_systick_get_reload()%_SYSTICK_COUNT_PER_TICK)); // - 1);
     _ltx_Sys_systick_clr_val(); // 触发重载
     
 #endif
@@ -214,7 +214,7 @@ void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscri
 
     _LTX_IRQ_DISABLE();
 
-    if(subscriber->next == NULL && subscriber->prev == NULL){ // 已经不在活跃列表中
+    if(subscriber->prev == NULL && subscriber->next == NULL){ // 已经不在活跃列表中
         _LTX_IRQ_ENABLE();
         return ;
     }
@@ -256,7 +256,6 @@ void ltx_Sys_tick_tack(void){
 
     struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
     struct ltx_Alarm_stu *pAlarm_next = ltx_sys_alarm_list.next; // 在移除闹钟时暂存它的 next 指针
-    struct ltx_Timer_stu *pTimer = ltx_sys_timer_list.next;
 
     // O(1)
     _LTX_IRQ_DISABLE();
@@ -333,6 +332,7 @@ TickType_t ltx_Sys_get_tick(void){
 #ifdef ltx_cfg_USE_TICKLESS
     TickType_t tick_get;
     _LTX_IRQ_DISABLE();
+    // 感觉应该要判断一下 systick 是否已经触发过重载
     tick_get = realTicks + (_ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val())/_SYSTICK_COUNT_PER_TICK;
     _LTX_IRQ_ENABLE();
     return tick_get;

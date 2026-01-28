@@ -20,8 +20,7 @@ void param_write_heart_beat(struct param_stu *param, const char *new_val){
 
     heart_beat_Hz = new_Hz;
     
-    task_heart_beat.timer.tick_reload = 1000/heart_beat_Hz;
-    task_heart_beat.timer.tick_counts = 1000/heart_beat_Hz;
+    task_heart_beat.tick_reload = 1000/heart_beat_Hz;
 
     LTX_LOG_INFO("Set heart beat to %d Hz\n", heart_beat_Hz);
 }

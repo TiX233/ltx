@@ -5,22 +5,8 @@ void _ltx_Lock_alarm_cb(void *param){
     struct ltx_Lock_stu *pLock = container_of(param, struct ltx_Lock_stu, subscriber_alarm);
 
     // 调用用户定义锁超时回调
-    // if(pLock->flag_is_locked){ // 不记得为什么要写这个 if 了 // 想起来了，因为 v1 中断不安全，所以让主循环去等闹钟超时自动移除，取消标志位而不是在中断中移除闹钟
-    //     pLock->timeout_callback(pLock);
-    // }
     pLock->timeout_callback(pLock);
 }
-
-#if 0
-void _ltx_Lock_subscriber_cb(void *param){
-    struct ltx_Lock_stu *pLock = container_of(param, struct ltx_Lock_stu, _subscriber);
-    
-    // 耗时且有死循环风险的操作，不放中断里
-    ltx_Alarm_remove(&pLock->_alarm);
-
-    ltx_Topic_publish(&pLock->topic_lock_release);
-}
-#endif
 
 /**
  * @brief   锁初始化
@@ -49,18 +35,6 @@ void ltx_Lock_init(struct ltx_Lock_stu *lock, void (*timeout_callback)(struct lt
     lock->subscriber_alarm.prev = &(lock->alarm_time_out.topic.subscriber_head);
     lock->subscriber_alarm.next = NULL;
 
-#if 0
-    lock->_topic.flag = 0;
-    lock->_topic.subscriber = NULL;
-    lock->_topic.next = NULL;
-
-    lock->_subscriber.callback_func = _ltx_Lock_subscriber_cb;
-    lock->_subscriber.next = NULL;
-
-    ltx_Topic_add(&lock->_topic);
-    ltx_Topic_subscribe(&lock->_topic, &lock->_subscriber);
-#endif
-
     lock->timeout_callback = timeout_callback;
 }
 
@@ -84,16 +58,9 @@ void ltx_Lock_locked(struct ltx_Lock_stu *lock, TickType_t timeout){
  * @retval  无
  */
 void ltx_Lock_release(struct ltx_Lock_stu *lock){
-    // if(lock->flag_is_locked){
-        lock->flag_is_locked = 0;
-#if 0
-        ltx_Topic_publish(&lock->_topic);
-#else
-        // ltx_Alarm_remove(&lock->_alarm); 等闹钟超时自动 remove
-        ltx_Alarm_remove(&lock->alarm_time_out); // 不用等了，v2 中断安全而且双链表删元素更快
-        ltx_Topic_publish(&lock->topic_lock_release);
-#endif
-    // }
+    lock->flag_is_locked = 0;
+    ltx_Alarm_remove(&lock->alarm_time_out);
+    ltx_Topic_publish(&lock->topic_lock_release);
 }
 
 /**

@@ -4,6 +4,18 @@
 // 系统 APP 链表头
 struct ltx_App_stu ltx_sys_app_list = {.next = NULL,};
 
+// 周期任务通用闹钟回调
+void _ltx_Task_alarm_cb(void *param){
+    struct ltx_Task_stu *pTask = container_of(param, struct ltx_Task_stu, subscriber);
+
+    // 设置闹钟为重载值
+    ltx_Alarm_add(&(pTask->alarm), pTask->tick_reload);
+    pTask->tick_execute = pTask->tick_reload + ltx_Sys_get_tick();
+
+    // 运行用户回调
+    pTask->task_callback(pTask);
+}
+
 // 周期任务 API
 /**
  * @brief   注册周期任务函数，默认暂停，需要调用 ltx_Task_resume 或者被 app 继续后才能正常运行
@@ -13,7 +25,7 @@ struct ltx_App_stu ltx_sys_app_list = {.next = NULL,};
  * @param   execute_delay: 任务首次运行延时，设置为零则立即就绪执行
  * @retval  非 0 代表失败
  */
-int ltx_Task_init(struct ltx_Task_stu *task, void (*callback_func)(void *param), TickType_t period, TickType_t execute_delay){
+int ltx_Task_init(struct ltx_Task_stu *task, void (*callback_func)(struct ltx_Task_stu *task), TickType_t period, TickType_t execute_delay){
     if(task == NULL || callback_func == NULL){
         return -1;
     }
@@ -21,26 +33,31 @@ int ltx_Task_init(struct ltx_Task_stu *task, void (*callback_func)(void *param),
         return -2;
     }
 
-    task->timer.tick_counts = execute_delay;
-    task->timer.tick_reload = period;
-    task->timer.prev = NULL;
-    task->timer.next = NULL;
+    task->tick_reload = period;
+    // task->tick_execute = execute_delay + ltx_Sys_get_tick(); // 可能会溢出
+    task->tick_execute = execute_delay;
 
-    task->timer.topic.flag_is_pending = 0;
-    task->timer.topic.subscriber_head.prev = NULL;
-    task->timer.topic.subscriber_head.next = &(task->subscriber);
-    task->timer.topic.subscriber_tail = &(task->subscriber);
-    task->timer.topic.next = NULL;
+    task->alarm.diff_tick = 0;
 
+    task->alarm.topic.flag_is_pending = 0;
+    task->alarm.topic.subscriber_head.prev = NULL;
+    task->alarm.topic.subscriber_head.next = &(task->subscriber);
+    task->alarm.topic.subscriber_tail = &(task->subscriber);
+    task->alarm.topic.next = NULL;
 
-    task->subscriber.callback_func = callback_func;
-    task->subscriber.prev = &(task->timer.topic.subscriber_head);
+    task->alarm.prev = NULL;
+    task->alarm.next = NULL;
+
+    task->subscriber.callback_func = _ltx_Task_alarm_cb;
+    task->subscriber.prev = &(task->alarm.topic.subscriber_head);
     task->subscriber.next = NULL;
+
+    task->task_callback = callback_func;
 
     task->next = NULL;
 
     task->status = ltx_Task_status_pause;
-    task->is_initialized = 1;
+    task->is_initialized = 2;
 
     return 0;
 }
@@ -62,6 +79,10 @@ int ltx_Task_add_to_app(struct ltx_Task_stu *task, struct ltx_App_stu *app, cons
         return -2;
     }
 
+    if(!task->is_initialized){ // 任务未经过初始化
+        return -3;
+    }
+
     task->name = task_name;
 
     // 添加到 app 的任务列表
@@ -80,7 +101,18 @@ int ltx_Task_add_to_app(struct ltx_Task_stu *task, struct ltx_App_stu *app, cons
  * @param   task: 任务结构体指针
  */
 void ltx_Task_pause(struct ltx_Task_stu *task){
-    ltx_Timer_remove(&(task->timer));
+    if(!task->is_initialized){ // 未经过初始化的任务，不予处理
+        return ;
+    }
+
+    if(task->status == ltx_Task_status_pause){ // 已经暂停了的任务，不处理
+        return ;
+    }
+
+    // 记录距离下次执行的时间差并暂停
+    task->tick_execute -= ltx_Sys_get_tick(); // 可能有风险
+
+    ltx_Alarm_remove(&(task->alarm));
     task->status = ltx_Task_status_pause;
 
     return ;
@@ -91,11 +123,35 @@ void ltx_Task_pause(struct ltx_Task_stu *task){
  * @param   task: 任务结构体指针
  */
 void ltx_Task_resume(struct ltx_Task_stu *task){
-    if(task->timer.tick_counts == 0){ // 要求立即执行
-        task->timer.tick_counts = task->timer.tick_reload;
-        ltx_Topic_publish(&(task->timer.topic));
+    if(!task->is_initialized){ // 未经过初始化的任务，不予处理
+        return ;
     }
-    ltx_Timer_add(&(task->timer));
+
+    if(task->is_initialized == 2){ // 刚初始化的任务
+        if(task->tick_execute){
+            ltx_Alarm_add(&(task->alarm), task->tick_execute);
+            task->tick_execute = ltx_Sys_get_tick() + task->tick_reload; // 计算下次执行的绝对时间点
+        }else { // 要求立即执行
+            ltx_Topic_publish(&(task->alarm.topic));
+        }
+
+        task->is_initialized = 1;
+        task->status = ltx_Task_status_running;
+
+        return ;
+    }
+
+    if(task->status == ltx_Task_status_running){ // 已经在运行态的任务，不处理
+        return ;
+    }
+
+    // 暂停前距离下次执行的时间设置为下次执行时间
+    if(task->tick_execute == 0){ // 要求立即执行
+        ltx_Topic_publish(&(task->alarm.topic));
+    }else {
+        ltx_Alarm_add(&(task->alarm), task->tick_execute);
+        task->tick_execute += ltx_Sys_get_tick(); // 计算下次执行的绝对时间点
+    }
     task->status = ltx_Task_status_running;
 
     return ;
@@ -107,7 +163,7 @@ void ltx_Task_resume(struct ltx_Task_stu *task){
  * @param   app: app 指针，如果这个 task 没加入 app 的话，那么可以传入 NULL
  */
 void ltx_Task_destroy(struct ltx_Task_stu *task, struct ltx_App_stu *app){
-    ltx_Timer_remove(&(task->timer));
+    ltx_Alarm_remove(&(task->alarm));
 
     task->is_initialized = 0;
     task->status = ltx_Task_status_pause;

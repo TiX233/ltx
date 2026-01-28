@@ -142,7 +142,7 @@ void alarm_cb_cmd_test_alarm(void *param){
 }
 struct ltx_Topic_subscriber_stu alarm_cmd_test_subscriber;
 struct ltx_Alarm_stu alarm_cmd_test = {
-    .tick_count_down = 0,
+    .diff_tick = 0,
     .topic = {
         .flag_is_pending = 0,
         .subscriber_head = {
@@ -168,10 +168,10 @@ void cmd_cb_alarm(uint8_t argc, char *argv[]){
     uint32_t ticks_alarm;
     sscanf(argv[1], "%d", &ticks_alarm);
 
-    if(ticks_alarm < 1){
-        alarm_cb_cmd_test_alarm(NULL);
-        return ;
-    }
+    // if(ticks_alarm < 1){
+    //     alarm_cb_cmd_test_alarm(NULL);
+    //     return ;
+    // }
 
     ltx_Alarm_add(&alarm_cmd_test, ticks_alarm);
 
@@ -319,7 +319,7 @@ void cmd_cb_ltx_app(uint8_t argc, char *argv[]){
                                     
                                     break;
                             }
-                            LTX_LOG_INFO("Task(%s) set okay\n", argv[2]);
+                            LTX_LOG_INFO("Task(%s) set okay\n", argv[3]);
                             return ;
                         }
                         pTask = &((*pTask)->next);

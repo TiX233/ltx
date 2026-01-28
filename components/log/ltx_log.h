@@ -2,8 +2,10 @@
  * @file ltx_log.h
  * @author realTiX
  * @brief 调试信息输出用
- * @version 2.0
+ * @version 3.0
  * @date 2026-01-13 (2.0, 增加不同等级调试信息专用宏)
+ * 
+ *       2026-01-28 (3.0, 将日志打印初始化反初始化改为弱函数)
  * 
  * @copyright Copyright (c) 2026
  * 
