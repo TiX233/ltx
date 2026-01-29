@@ -152,17 +152,6 @@ void ltx_Script_pause(struct ltx_Script_stu *script){
  * @retval  无
  */
 void ltx_Script_resume(struct ltx_Script_stu *script, TickType_t delay_ticks){
-    if(script->triger_type == SC_TRIGER_UNKNOWN){ // 第一次执行
-        if(script->alarm_next_run.diff_tick == 0){ // 启动延时时间为 0，要求尽快执行
-            // script->triger_type = SC_TRIGER_TIMEOUT; // 不用管
-            // 直接推入就绪队列
-            ltx_Topic_publish(&(script->alarm_next_run.topic));
-        }else { // 启动延时时间非 0
-            ltx_Alarm_add(&(script->alarm_next_run), script->alarm_next_run.diff_tick);
-        }
-
-        return ;
-    }
 
     if(!delay_ticks){ // 要求尽快执行
         ltx_Topic_publish(&(script->alarm_next_run.topic));

@@ -197,7 +197,8 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
 
     _LTX_IRQ_DISABLE();
-    if(subscriber->next != NULL || topic->subscriber_tail == subscriber){ // 已经存在，不重复添加
+    // if(subscriber->next != NULL || topic->subscriber_tail == subscriber){ // 已经存在，不重复添加
+    if(subscriber->prev != NULL){ // 已经存在，不重复添加
         // 但是不添加额外的成员变量的话，只能遍历所有话题才能避免一个订阅者订阅多个话题，先不管
         _LTX_IRQ_ENABLE();
         return ;
@@ -214,7 +215,8 @@ void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscri
 
     _LTX_IRQ_DISABLE();
 
-    if(subscriber->prev == NULL && subscriber->next == NULL){ // 已经不在活跃列表中
+    // if(subscriber->prev == NULL && subscriber->next == NULL){ // 已经不在活跃列表中
+    if(subscriber->prev == NULL){ // 已经不在活跃列表中
         _LTX_IRQ_ENABLE();
         return ;
     }
@@ -254,7 +256,7 @@ void ltx_Topic_publish(struct ltx_Topic_stu *topic){
 void ltx_Sys_tick_tack(void){
     realTicks += intervalTicks;
 
-    struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
+    // struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
     struct ltx_Alarm_stu *pAlarm_next = ltx_sys_alarm_list.next; // 在移除闹钟时暂存它的 next 指针
 
     // O(1)
@@ -270,31 +272,34 @@ void ltx_Sys_tick_tack(void){
                 _LTX_SET_SCHEDULE_FLAG();
             }
             // 移除这个闹钟
-            pAlarm->next = pAlarm_next->next;
-            pAlarm_next->prev = pAlarm;
-            pAlarm_next->next = NULL;
+            ltx_sys_alarm_list.next = pAlarm_next->next;
             pAlarm_next->prev = NULL;
+            if(ltx_sys_alarm_list.next != NULL){
 
-            // 判断有没有需要同时弹出的闹钟
-            pAlarm_next = ltx_sys_alarm_list.next;
-            while(pAlarm_next != NULL){
-                if(pAlarm_next->diff_tick == 0){
-                    // 弹出
-                    pAlarm_next->topic.flag_is_pending = 1;
-                    if(!(pAlarm_next->topic.next != NULL || ltx_sys_topic_queue_tail == &(pAlarm_next->topic))){ // 不存在于话题队列，推入
-                        ltx_sys_topic_queue_tail->next = &(pAlarm_next->topic);
-                        ltx_sys_topic_queue_tail = &(pAlarm_next->topic);
-                        _LTX_SET_SCHEDULE_FLAG();
+                // pAlarm_next->next->prev = &ltx_sys_alarm_list;
+                pAlarm_next->next = NULL;
+
+                // 判断有没有需要同时弹出的闹钟
+                pAlarm_next = ltx_sys_alarm_list.next;
+                while(pAlarm_next != NULL){
+                    pAlarm_next->prev = &ltx_sys_alarm_list;
+                    if(pAlarm_next->diff_tick == 0){
+                        // 弹出
+                        pAlarm_next->topic.flag_is_pending = 1;
+                        if(!(pAlarm_next->topic.next != NULL || ltx_sys_topic_queue_tail == &(pAlarm_next->topic))){ // 不存在于话题队列，推入
+                            ltx_sys_topic_queue_tail->next = &(pAlarm_next->topic);
+                            ltx_sys_topic_queue_tail = &(pAlarm_next->topic);
+                            _LTX_SET_SCHEDULE_FLAG();
+                        }
+                        // 移除这个闹钟
+                        ltx_sys_alarm_list.next = pAlarm_next->next;
+                        pAlarm_next->next = NULL;
+                        pAlarm_next->prev = NULL;
+
+                        pAlarm_next = ltx_sys_alarm_list.next;
+                    }else {
+                        break;
                     }
-                    // 移除这个闹钟
-                    pAlarm->next = pAlarm_next->next;
-                    pAlarm_next->prev = pAlarm;
-                    pAlarm_next->next = NULL;
-                    pAlarm_next->prev = NULL;
-
-                    pAlarm_next = ltx_sys_alarm_list.next;
-                }else {
-                    break;
                 }
             }
         }else { // 时间还没到，减少首个元素的时间差
