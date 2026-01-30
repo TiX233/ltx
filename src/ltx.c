@@ -82,17 +82,15 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
         alarm->prev->next = alarm->next;
         if(alarm->next != NULL){
             alarm->next->prev = alarm->prev;
-            alarm->next->diff_tick += alarm->diff_tick;
+            alarm->next->diff_tick += alarm->diff_tick; // 应该不会溢出
             alarm->next = NULL;
-        }else { // 为最后一个节点，不移除，直接加倒计时
-            // 算了，不好搞，要处理溢出
         }
         alarm->prev = NULL;
     }
 
 // 计算已经休眠的时间
 #ifdef ltx_cfg_USE_TICKLESS
-    TickType_t tick_dec; 
+    TickType_t tick_dec;
     _ltx_Sys_systick_pause(); // 暂停 systick
     if(_ltx_Sys_systick_get_flag()){ // 如果 systick 已经触发了但还没进 systick 中断
         tick_dec = intervalTicks - 1;
@@ -100,7 +98,8 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
         tick_dec = (_ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val())/_SYSTICK_COUNT_PER_TICK;
         // 理论上应该不会把为 0 的计数值赋值给重载值，因为会由于中断标志位触发而进上一个分支
         // 或许要减几个来补偿一下，但是要判断，不然会小于零，算了，真要搞高精度定时用啥 systick，更别说开了 tickless 唤醒也慢
-        _ltx_Sys_systick_set_reload(_ltx_Sys_systick_get_val());
+        // 好像有点画蛇添足
+        // _ltx_Sys_systick_set_reload(_ltx_Sys_systick_get_val());
         // _ltx_Sys_systick_clr_val(); // 触发重载，不需要吧，反正已经等于重载值了
     }
     _ltx_Sys_systick_resume(); // 恢复 systick
@@ -109,12 +108,14 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
     realTicks += tick_dec;
 
     if(ltx_sys_alarm_list.next != NULL){ // 首个任务减去已经休眠的时间
-        ltx_sys_alarm_list.next->diff_tick = intervalTicks;
+        ltx_sys_alarm_list.next->diff_tick -= tick_dec;
     }else { // 组件链表没有任务
+        alarm->diff_tick = tick_count_down;
         intervalTicks = (alarm->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : alarm->diff_tick;
         ltx_sys_alarm_list.next = alarm;
         alarm->prev = &ltx_sys_alarm_list;
 
+    _ltx_Sys_systick_pause(); // 暂停 systick
         // 虽然会导致 systick 时间错位，但是应该影响不大，反正只有这个一个任务
         // 对于只有一个每 1ms 执行一次的任务的情况，那么 systick 实际周期会大于 1ms，但是既然每个毫秒都要调用，为什么还要开 tickless
         _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1); // 或许应该多减几顺便把这两条语句的时间补偿上去？
@@ -122,6 +123,8 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
 
         _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
 
+    _ltx_Sys_systick_resume(); // 恢复 systick
+    
         _LTX_IRQ_ENABLE();
         return ;
     }
@@ -160,9 +163,19 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
 #ifdef ltx_cfg_USE_TICKLESS
 TAG_set_tickless:    
     intervalTicks = (ltx_sys_alarm_list.next->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : ltx_sys_alarm_list.next->diff_tick;
-    // _ltx_Sys_systick_set_reload((_ltx_Sys_systick_get_reload()%_SYSTICK_COUNT_PER_TICK) + (intervalTicks-1)*_SYSTICK_COUNT_PER_TICK - 1);
-    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - (_ltx_Sys_systick_get_reload()%_SYSTICK_COUNT_PER_TICK)); // - 1);
+
+    _ltx_Sys_systick_pause(); // 暂停 systick
+#if 0
+    // 不知道为什么用了这个补偿的话 systick 有概率直接触发
+    _ltx_Sys_systick_set_reload((_ltx_Sys_systick_get_val()%_SYSTICK_COUNT_PER_TICK) + (intervalTicks-1)*_SYSTICK_COUNT_PER_TICK - 1);
+    // _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - (_ltx_Sys_systick_get_val()%_SYSTICK_COUNT_PER_TICK)); // - 1);
+#else
+    // 不补偿，会导致 systick 被推迟一点
+    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1);
+#endif
     _ltx_Sys_systick_clr_val(); // 触发重载
+    _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
+    _ltx_Sys_systick_resume(); // 恢复 systick
     
 #endif
 
@@ -171,10 +184,12 @@ TAG_set_tickless:
 
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
     
-    // 移除，O(1)，不过其实不太常用
+    // 移除，O(1)
     _LTX_IRQ_DISABLE();
 
     if(alarm->prev == NULL){ // 已经不在活跃列表中
+        // 移除可能已经就绪的 topic
+        alarm->topic.flag_is_pending = 0; // 就绪标志位清零
         _LTX_IRQ_ENABLE();
         return ;
     }
@@ -182,7 +197,7 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
     alarm->prev->next = alarm->next;
     if(alarm->next != NULL){
         alarm->next->prev = alarm->prev;
-        alarm->next->diff_tick += alarm->diff_tick;
+        alarm->next->diff_tick += alarm->diff_tick; // 应该不会溢出
         alarm->next = NULL;
     }
     alarm->prev = NULL;
@@ -265,6 +280,7 @@ void ltx_Sys_tick_tack(void){
     // 如果前几个是相同时间，那么一起弹出，否则只弹出第一个
     if(pAlarm_next != NULL){
         if(pAlarm_next->diff_tick <= intervalTicks){ // 时间到，弹出
+            // pAlarm_next->diff_tick = _ltx_Sys_systick_get_reload(); // 调试用
             pAlarm_next->topic.flag_is_pending = 1;
             if(!(pAlarm_next->topic.next != NULL || ltx_sys_topic_queue_tail == &(pAlarm_next->topic))){ // 不存在于话题队列，推入
                 ltx_sys_topic_queue_tail->next = &(pAlarm_next->topic);
@@ -321,10 +337,16 @@ void ltx_Sys_tick_tack(void){
     // 其他中断要是能抢几个毫秒的中断不放手那只能说代码够烂
     // _ltx_Sys_systick_pause(); // 暂停 systick
 
-    uint32_t systick_val = _ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val(); // 补偿？
+#if 0
+    // 补偿
+    uint32_t systick_val = _ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val();
     _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1 - systick_val); // 或许应该多减几顺便把这两条语句的时间补偿上去？
+#else
+    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1);
+#endif
     _ltx_Sys_systick_clr_val(); // 触发重载
 
+    _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
     // _ltx_Sys_systick_resume(); // 恢复 systick
 
 #endif

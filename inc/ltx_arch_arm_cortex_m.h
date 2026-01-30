@@ -26,17 +26,17 @@
     // 恢复 systick
     #define _ltx_Sys_systick_resume()           (SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk)
     // 设置 systick 重载值
-    #define _ltx_Sys_systick_set_reload(reload) (SysTick->LOAD = reload)
+    #define _ltx_Sys_systick_set_reload(reload) (SysTick->LOAD = (uint32_t)(reload))
     // 获取 systick 重载值
     #define _ltx_Sys_systick_get_reload()       (SysTick->LOAD)
     // 清除 systick 计数值为重载值
-    #define _ltx_Sys_systick_clr_val()          (SysTick->VAL = 0)
+    #define _ltx_Sys_systick_clr_val()          (SysTick->VAL = 0UL)
     // 获取 systick 计数值
     #define _ltx_Sys_systick_get_val()          (SysTick->VAL)
     // 获取 systick 中断标志位，用于判断是否溢出/重载
     #define _ltx_Sys_systick_get_flag()         (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk)
-    // 清除 systick 中断标志位
-    #define _ltx_Sys_systick_clr_flag()         (SysTick->CTRL &= ~SysTick_CTRL_COUNTFLAG_Msk)
+    // 清除 systick 中断标志位：COUNTFLAG 为只读位，需通过读取 CTRL 寄存器清除
+    #define _ltx_Sys_systick_clr_flag()         ((void)SysTick->CTRL)
 
     // 告知调度器 systick 的频率
     #define _SYSTICK_FREQ                       8000000
