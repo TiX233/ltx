@@ -335,7 +335,7 @@ void ltx_Sys_tick_tack(void){
 
     // 应该不需要判断是否已经重载过，毕竟这里是 systick 中断，应该不会拖太久才被调用
     // 其他中断要是能抢几个毫秒的中断不放手那只能说代码够烂
-    // _ltx_Sys_systick_pause(); // 暂停 systick
+    _ltx_Sys_systick_pause(); // 暂停 systick
 
 #if 0
     // 补偿
@@ -347,7 +347,7 @@ void ltx_Sys_tick_tack(void){
     _ltx_Sys_systick_clr_val(); // 触发重载
 
     _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
-    // _ltx_Sys_systick_resume(); // 恢复 systick
+    _ltx_Sys_systick_resume(); // 恢复 systick
 
 #endif
     

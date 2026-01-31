@@ -9,7 +9,7 @@
 #define _LTX_IRQ_ENABLE()                       __enable_irq()
 #define _LTX_IRQ_DISABLE()                      __disable_irq()
 
-// 开启空闲任务的话
+// 开启空闲任务的话，设置为触发 最低优先级 的软中断
 #ifdef ltx_cfg_USE_IDLE_TASK
     // 设置为置位 PendSV 标志位，触发其运行
     #define _LTX_SET_SCHEDULE_FLAG()            (SCB->ICSR = SCB_ICSR_PENDSVSET_Msk)
@@ -33,9 +33,9 @@
     #define _ltx_Sys_systick_clr_val()          (SysTick->VAL = 0UL)
     // 获取 systick 计数值
     #define _ltx_Sys_systick_get_val()          (SysTick->VAL)
-    // 获取 systick 中断标志位，用于判断是否溢出/重载
+    // 获取 systick 中断标志位，用于判断是否溢出/重载，但是 arm 的 systick 的中断标志位会在读取后被清除，，，
     #define _ltx_Sys_systick_get_flag()         (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk)
-    // 清除 systick 中断标志位：COUNTFLAG 为只读位，需通过读取 CTRL 寄存器清除
+    // 清除 systick 中断标志位，对于 arm cortex-m，COUNTFLAG 为只读位，需通过读取 CTRL 寄存器清除
     #define _ltx_Sys_systick_clr_flag()         ((void)SysTick->CTRL)
 
     // 告知调度器 systick 的频率
