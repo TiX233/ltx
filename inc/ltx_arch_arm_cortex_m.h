@@ -7,7 +7,7 @@
 
 // 开关中断宏
 #define _LTX_IRQ_ENABLE()                       __enable_irq()
-#define _LTX_IRQ_DISABLE()                      __disable_irq()
+#define _LTX_IRQ_DISABLE()                      do{__disable_irq(); __DSB(); __ISB();}while(0)
 
 // 开启空闲任务的话，设置为触发 最低优先级 的软中断
 #ifdef ltx_cfg_USE_IDLE_TASK
