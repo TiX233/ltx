@@ -3,7 +3,7 @@
 #include "ltx_param.h"
 #include "ltx.h"
 #include "ltx_app.h"
-#include "myAPP_system.h"
+// #include "myAPP_system.h"
 #include "ltx_log.h"
 
 typedef struct {
@@ -358,28 +358,21 @@ void print_cb_heart_beat(void *param){
     LTX_LOG_FMT("Heartbeat: %d\n", heart_beat_count);
 }
 
+// 可追踪打印数据的参数信息，需要提供名字、话题指针以及打印回调
+#define _P_DATA_INFO(name_str, topic_ptr, callback)     {.item_name = name_str,.topic = topic_ptr,\
+                                                        .subscriber = {.callback_func = callback,.prev = NULL,.next = NULL,},}
 // 可供打印的数据对象
 struct {
     const char *item_name;
     struct ltx_Topic_stu *topic;
     struct ltx_Topic_subscriber_stu subscriber;
 } print_data_item_list[] = {
-    {
-        .item_name = "heart_beat",
-        .topic = &(task_heart_beat.timer.topic),
-        .subscriber = {
-            .callback_func = print_cb_heart_beat,
-
-            .prev = NULL,
-            .next = NULL,
-        },
-    },
+    // 心跳任务的心跳数值样例
+    // _P_DATA_INFO("heart_beat", &(task_heart_beat.alarm.topic), print_cb_heart_beat),
 
 
     // 列表结尾项
-    {
-        .item_name = " ",
-    },
+    {.item_name = " ",},
 };
 
 // 数据更新打印订阅设置命令
@@ -494,7 +487,11 @@ void cmd_cb_param(uint8_t argc, char *argv[]){
 
             for(uint8_t i = 0; param_list[i].param_name[0] != ' '; i ++){
                 if(my_str_cmp(param_list[i].param_name, argv[2]) == 0){
-                    param_list[i].param_write(&param_list[i], argv[3]);
+                    if(argv[3][0] == ':'){ // 适配 vofa 画蛇添足的冒号
+                        param_list[i].param_write(&param_list[i], &(argv[3][1]));
+                    }else {
+                        param_list[i].param_write(&param_list[i], argv[3]);
+                    }
 
                     return ;
                 }
