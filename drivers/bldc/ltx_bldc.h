@@ -5,7 +5,11 @@
  * @version 0.1
  * @date 2026-02-15 (0.1, 初步完成)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 #ifndef __LTX_BLDC_H__

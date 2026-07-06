@@ -7,7 +7,11 @@
  *       2025-11-24 (0.2，纳入 ltx 可选组件)
  *       2026-03-13 (0.3，优化参数对象创建过程)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2025-2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 #ifndef __LTX_PARAM_H__

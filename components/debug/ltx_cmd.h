@@ -11,7 +11,11 @@
  *       2026-01-28 (3.0，适配 ltx V3)
  *       2026-03-11 (3.1，优化 print 命令创建打印对象方法；修改 param 命令适配 vofa 多出来的冒号)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2025-2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 

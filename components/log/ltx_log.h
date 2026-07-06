@@ -8,7 +8,11 @@
  *       2026-01-28 (3.0, 将日志打印初始化反初始化改为弱函数)
  *       2026-03-16 (3.1, 增加多缓存 DMA 外设打印支持)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 #ifndef __LTX_LOG_H__

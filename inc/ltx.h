@@ -32,7 +32,11 @@
  *       2026-01-29 (3.1, 修复系统嘀嗒 api 对闹钟链表的错误操作导致无法正常使用)
  *       2026-01-30 (3.2, 初步修复 tickless 不可正常使用的 bug；目前不开启补偿暂时没出现问题，开启后小概率会有 systick 提前触发弹出闹钟的 bug)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2025-2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 

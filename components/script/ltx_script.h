@@ -13,7 +13,11 @@
  *       2026-01-28 (3.0，适配 ltx V3，适配 ltx V3 的闹钟改动，修改 api，优化使用逻辑，且便于适配 V3 闹钟)
  *       2026-01-28 (3.1，修复 reset 脚本 api 的潜在错误操作)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2025-2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 #ifndef __LTX_SCRIPT_H__

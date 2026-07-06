@@ -10,7 +10,11 @@
  * 
  *       2026-01-28 (3.0，未作改动，仅对其版本号，直接支持 ltx V3)
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2025-2026, realTiX
+ * @license GPL-3.0
+ * 
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: GPL-3.0-only
  * 
  */
 #ifndef __LTX_EVENT_GROUP_H__
