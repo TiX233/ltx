@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 轻量级的事件驱动裸机调度框架，由闹钟和发布订阅机制构成。调度器可运行在软中断中，实现空闲任务/空闲休眠能力，支持 tickless
- * @version 3.2
+ * @version 3.3
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -31,6 +31,7 @@
  *                              将闹钟改为顺序插入，每个闹钟存储与前一个的时间差，systick 弹出效率从 O(N) 变为 O(1)，且便于 tickless)
  *       2026-01-29 (3.1, 修复系统嘀嗒 api 对闹钟链表的错误操作导致无法正常使用)
  *       2026-01-30 (3.2, 初步修复 tickless 不可正常使用的 bug；目前不开启补偿暂时没出现问题，开启后小概率会有 systick 提前触发弹出闹钟的 bug)
+ *       2026-07-07 (3.3, 将 container_of 指针改为 uintptr_t 兼容 64 位设备)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license GPL-3.0
@@ -49,7 +50,7 @@
 // 从结构体成员计算结构体指针
 // 好像不能直接用 linux 里的，从 rtthread 里偷一个
 #define container_of(ptr, type, member) \
-    ((type *)((char *)(ptr) - (unsigned long)(&((type *)0)->member)))
+    ((type *)((char *)(ptr) - (uintptr_t)(&((type *)0)->member)))
 
 // 组件结构体初始化默认参数
 #define _LTX_TOPIC_DEAFULT_CONFIG(self)                 {.flag_is_pending = 0, .subscriber_head = {.prev = NULL, .next = NULL}, .subscriber_tail = &(self.subscriber_head), .next = NULL}
