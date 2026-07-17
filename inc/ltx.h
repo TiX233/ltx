@@ -32,6 +32,7 @@
  *       2026-01-29 (3.1, 修复系统嘀嗒 api 对闹钟链表的错误操作导致无法正常使用)
  *       2026-01-30 (3.2, 初步修复 tickless 不可正常使用的 bug；目前不开启补偿暂时没出现问题，开启后小概率会有 systick 提前触发弹出闹钟的 bug)
  *       2026-07-07 (3.3, 将 container_of 指针改为 uintptr_t 兼容 64 位设备)
+ *       2026-07-17 (3.4, 增加 ltx_Topic_publish_high_priority API，提供高优先级事件发布能力；删除遗留 timer 代码)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license GPL-3.0
@@ -75,20 +76,6 @@ struct ltx_Topic_stu {
     struct ltx_Topic_stu *next;
 };
 
-// V3 删除定时器，可使用闹钟代替，需要定期执行的任务可自行在回调中设置下次调用的闹钟或者直接使用拓展组件中的 task 组件
-#if 0
-// 定时器
-struct ltx_Timer_stu {
-    TickType_t tick_counts; // tick counts 会在每个 tick 减一，当减为 0 时，会赋值为 tick reload，并且发布 Topic
-    TickType_t tick_reload; // 重载值/周期，赋值为 0 则相当于设置为 TickType_t 的最大值
-
-    struct ltx_Topic_stu topic; // 定时器触发后会给所有订阅者发送通知
-
-    struct ltx_Timer_stu *prev;
-    struct ltx_Timer_stu *next;
-};
-#endif
-
 // 闹钟
 struct ltx_Alarm_stu {
     TickType_t diff_tick; // 闹钟间相对时间差，表示距离链表前一个节点的倒计时，变为零时发布话题通知前台调用订阅者回调函数
@@ -99,17 +86,17 @@ struct ltx_Alarm_stu {
     struct ltx_Alarm_stu *next;
 };
 
-#if 0
-void ltx_Timer_add(struct ltx_Timer_stu *timer);
-void ltx_Timer_remove(struct ltx_Timer_stu *timer);
-#endif
 
 void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down);
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm);
 
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
 void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
+// 发布话题，将事件对象推入事件队列最末尾
 void ltx_Topic_publish(struct ltx_Topic_stu *topic);
+// 发布话题，高优先级版本。将事件对象插队事件队列头，事件可以更快得到处理
+void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic);
+
 
 // 系统嘀嗒，由 systick/硬件定时器 中断服务函数调用
 void ltx_Sys_tick_tack(void);
