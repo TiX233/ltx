@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 轻量级的事件驱动裸机调度框架，由闹钟和发布订阅机制构成。调度器可运行在软中断中，实现空闲任务/空闲休眠能力，支持 tickless
- * @version 3.3
+ * @version 3.5
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -33,6 +33,7 @@
  *       2026-01-30 (3.2, 初步修复 tickless 不可正常使用的 bug；目前不开启补偿暂时没出现问题，开启后小概率会有 systick 提前触发弹出闹钟的 bug)
  *       2026-07-07 (3.3, 将 container_of 指针改为 uintptr_t 兼容 64 位设备)
  *       2026-07-17 (3.4, 增加 ltx_Topic_publish_high_priority API，提供高优先级事件发布能力；删除遗留 timer 代码)
+ *       2026-07-20 (3.5, 优化 ltx_Topic_publish_high_priority，省略不必要的启动调度信号，提高效率)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license GPL-3.0
@@ -92,7 +93,7 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm);
 
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
 void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
-// 发布话题，将事件对象推入事件队列最末尾
+// 发布话题，默认版本。将事件对象推入事件队列最末尾
 void ltx_Topic_publish(struct ltx_Topic_stu *topic);
 // 发布话题，高优先级版本。将事件对象插队事件队列头，事件可以更快得到处理
 void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic);

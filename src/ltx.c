@@ -200,7 +200,7 @@ void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscri
     _LTX_IRQ_ENABLE();
 }
 
-// 发布话题，将事件对象推入事件队列最末尾
+// 发布话题，默认版本。将事件对象推入事件队列最末尾
 void ltx_Topic_publish(struct ltx_Topic_stu *topic){
     
     _LTX_IRQ_DISABLE();
@@ -244,7 +244,9 @@ void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic){
     topic->next = ltx_sys_topic_queue.next;
     ltx_sys_topic_queue.next = topic;
 
-    _LTX_SET_SCHEDULE_FLAG();
+    // 不为空可以省略启动调度信号
+    // _LTX_SET_SCHEDULE_FLAG();
+
     _LTX_IRQ_ENABLE();
 }
 
