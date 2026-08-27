@@ -5,6 +5,9 @@
 
 #include "ltx_config.h"
 
+// 有时候，内存不同步可能会导致一些系统配置不起作用，从而出现一些奇奇怪怪的现象
+// 您可以考虑合理插入 __DSB(); __ISB(); 等等指令来冲刷流水线
+
 // 开关中断宏
 #define _LTX_IRQ_ENABLE()                       __enable_irq()
 #define _LTX_IRQ_DISABLE()                      do{__disable_irq(); __DSB(); __ISB();}while(0)

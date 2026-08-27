@@ -9,10 +9,10 @@
  *       2026-03-16 (3.1, 增加多缓存 DMA 外设打印支持)
  * 
  * @copyright Copyright (c) 2026, realTiX
- * @license GPL-3.0
+ * @license Apache-2.0
  * 
- * SPDX-FileCopyrightText: 2026 realTiX
- * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-FileCopyrightText: 2025-2026 realTiX
+ * SPDX-License-Identifier: Apache-2.0
  * 
  */
 #ifndef __LTX_LOG_H__

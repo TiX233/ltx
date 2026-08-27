@@ -36,11 +36,10 @@
  *       2026-07-20 (3.5, 优化 ltx_Topic_publish_high_priority，省略不必要的启动调度信号，提高效率)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
- * @license GPL-3.0
+ * @license Apache-2.0
  * 
  * SPDX-FileCopyrightText: 2025-2026 realTiX
- * SPDX-License-Identifier: GPL-3.0-only
- * 
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #ifndef __LTX_H__

@@ -11,10 +11,10 @@
  *       2026-01-28 (3.0，删除遗留注释代码；逻辑未改动，仅跟上 V3 版本号)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
- * @license GPL-3.0
+ * @license Apache-2.0
  * 
  * SPDX-FileCopyrightText: 2025-2026 realTiX
- * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-License-Identifier: Apache-2.0
  * 
  */
 #ifndef __LTX_LOCK_H__

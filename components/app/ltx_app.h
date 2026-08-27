@@ -17,10 +17,10 @@
  *       2026-01-28 (3.0, 重构，适配 ltx V3，V3 删除了定时器，所以周期任务使用闹钟代替定时器)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
- * @license GPL-3.0
+ * @license Apache-2.0
  * 
  * SPDX-FileCopyrightText: 2025-2026 realTiX
- * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-License-Identifier: Apache-2.0
  * 
  */
 #ifndef __LTX_APP_H__

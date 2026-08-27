@@ -6,10 +6,10 @@
  * @date 2026-03-16 (0.1, 初步完成设计)
  * 
  * @copyright Copyright (c) 2026, realTiX
- * @license GPL-3.0
+ * @license Apache-2.0
  * 
  * SPDX-FileCopyrightText: 2026 realTiX
- * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-License-Identifier: Apache-2.0
  * 
  */
 #ifndef __LTX_MTBUF_H__
