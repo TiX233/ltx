@@ -1,7 +1,12 @@
 #include "ltx.h"
 
-volatile TickType_t realTicks; // 系统时间，溢出处理感觉不太需要，反正 alarm 和 timer 内部有自己的计数器
+volatile TickType_t realTicks; // 系统时间，溢出处理感觉不太需要，反正 alarm 内部有自己的计数器
 volatile TickType_t intervalTicks = 1; // systick 调用间隔，不需要 tickless 的话这个固定为 1ms，开启 tickless 的话这个会动态变化
+
+#if (ltx_cfg_CORE_NUM > 1)
+// 多核心下全局自旋变量
+volatile spin_num_t __g_spin_lock = 0;
+#endif
 
 // ========== 活跃组件列表 ==========
 // 事件链表队列 链表头
@@ -27,7 +32,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
     // 为 0 则以最大值倒计时
     tick_count_down = (tick_count_down == 0) ? -1 : tick_count_down;
 
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
     // 已经存在，移除重新倒计时，O(1)
     if(alarm->prev != NULL){
@@ -77,7 +82,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
 
     _ltx_Sys_systick_resume(); // 恢复 systick
     
-        _LTX_IRQ_ENABLE();
+        _LTX_CRITICAL_OUTO();
         return ;
     }
 #endif
@@ -98,7 +103,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
 #ifdef ltx_cfg_USE_TICKLESS
             goto TAG_set_tickless; // 省得写两次以后忘了改某一个
 #else
-            _LTX_IRQ_ENABLE();
+            _LTX_CRITICAL_OUTO();
             return ;
 #endif
         }
@@ -131,18 +136,18 @@ TAG_set_tickless:
     
 #endif
 
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
 }
 
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
     
     // 移除，O(1)
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
     if(alarm->prev == NULL){ // 已经不在活跃列表中
         // 移除可能已经就绪的 topic
-        alarm->topic.flag_is_pending = 0; // 就绪标志位清零
-        _LTX_IRQ_ENABLE();
+        alarm->topic.state &= (~0x01); // 就绪标志位清零
+        _LTX_CRITICAL_OUTO();
         return ;
     }
 
@@ -155,78 +160,86 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
     alarm->prev = NULL;
 
     // 移除可能已经就绪的 topic
-    alarm->topic.flag_is_pending = 0; // 就绪标志位清零
+    alarm->topic.state &= (~0x01); // 就绪标志位清零
 
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
 }
 
 // ========== 话题相关 ==========
+// V4 版本订阅新话题会自动取消订阅原本的话题，避免多次订阅
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
 
-    _LTX_IRQ_DISABLE();
-    // if(subscriber->next != NULL || topic->subscriber_tail == subscriber){ // 已经存在，不重复添加
-    if(subscriber->prev != NULL){ // 已经存在，不重复添加
-        // 但是不添加额外的成员变量的话，只能遍历所有话题才能避免一个订阅者订阅多个话题，先不管
-        _LTX_IRQ_ENABLE();
-        return ;
+    _LTX_CRITICAL_INTO();
+    
+    if(subscriber->prev != NULL){ // 已经订阅了某个话题，先取消订阅
+        subscriber->prev->next = subscriber->next;
+        if(subscriber->next != NULL){
+            subscriber->next->prev = subscriber->prev;
+            // subscriber->next = NULL;
+        }
+        // subscriber->prev = NULL;
     }
 
-    subscriber->prev = topic->subscriber_tail;
-    topic->subscriber_tail->next = subscriber;
-    topic->subscriber_tail = subscriber;
+    subscriber->next = topic->subscriber_head.next;
+    subscriber->prev = &topic->subscriber_head;
+    if(topic->subscriber_head.next != NULL){
+        topic->subscriber_head.next->prev = subscriber;
+        topic->subscriber_head.next = subscriber;
+    }
 
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
 }
 
-void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber){
+// V4 版本不再需要提供被订阅的话题的指针
+void ltx_Topic_unsubscribe(struct ltx_Topic_subscriber_stu *subscriber){
 
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
-    // if(subscriber->prev == NULL && subscriber->next == NULL){ // 已经不在活跃列表中
-    if(subscriber->prev == NULL){ // 已经不在活跃列表中
-        _LTX_IRQ_ENABLE();
-        return ;
+    if(subscriber->prev != NULL){
+        subscriber->prev->next = subscriber->next;
+        
+        if(subscriber->next != NULL){
+            subscriber->next->prev = subscriber->prev;
+            subscriber->next = NULL;
+        }
+        subscriber->prev = NULL;
     }
+    // 没有订阅任何话题则不做任何操作
 
-    subscriber->prev->next = subscriber->next;
-    if(topic->subscriber_tail == subscriber){ // 需要移除的这个节点是尾节点
-        topic->subscriber_tail = subscriber->prev;
-    }else {
-        subscriber->next->prev = subscriber->prev;
-        subscriber->next = NULL;
-    }
-    subscriber->prev = NULL;
-
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
 }
 
 // 发布话题，默认版本。将事件对象推入事件队列最末尾
 void ltx_Topic_publish(struct ltx_Topic_stu *topic){
     
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
-    topic->flag_is_pending = 1;
-    if(topic->next != NULL || ltx_sys_topic_queue_tail == topic){ // 已经存在
-        _LTX_IRQ_ENABLE();
+    // 就绪标志位置 1
+    topic->state |= 0x01;
+    // 已经存在，不推入事件队列
+    if(topic->next != NULL || ltx_sys_topic_queue_tail == topic){
+        _LTX_CRITICAL_OUTO();
         return ;
     }
 
     ltx_sys_topic_queue_tail->next = topic;
     ltx_sys_topic_queue_tail = topic;
 
+    _LTX_CRITICAL_OUTO();
+
     _LTX_SET_SCHEDULE_FLAG();
-    _LTX_IRQ_ENABLE();
 }
 
 // 发布话题，高优先级版本。将事件对象插队事件队列头，事件可以更快得到处理
 void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic){
     
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
-    topic->flag_is_pending = 1;
+    topic->state |= 0x01;
     if(topic->next != NULL || ltx_sys_topic_queue_tail == topic){ // 已经存在
-        // 感觉不需要将事件挪到队头
-        _LTX_IRQ_ENABLE();
+        // 感觉不需要额外将事件挪到队头
+        // 不可能说先低优先级发布一次再高优先级发布一次，重要事件肯定是固定使用高优先级版本，已经存在那么也只能是存在于队头
+        _LTX_CRITICAL_OUTO();
         return ;
     }
 
@@ -235,8 +248,9 @@ void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic){
         ltx_sys_topic_queue_tail->next = topic;
         ltx_sys_topic_queue_tail = topic;
 
+        _LTX_CRITICAL_OUTO();
+
         _LTX_SET_SCHEDULE_FLAG();
-        _LTX_IRQ_ENABLE();
         return ;
     }
 
@@ -244,10 +258,10 @@ void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic){
     topic->next = ltx_sys_topic_queue.next;
     ltx_sys_topic_queue.next = topic;
 
+    _LTX_CRITICAL_OUTO();
+
     // 不为空可以省略启动调度信号
     // _LTX_SET_SCHEDULE_FLAG();
-
-    _LTX_IRQ_ENABLE();
 }
 
 // ========== 系统调度相关 ==========
@@ -259,7 +273,7 @@ void ltx_Sys_tick_tack(void){
     struct ltx_Alarm_stu *pAlarm_next = ltx_sys_alarm_list.next; // 在移除闹钟时暂存它的 next 指针
 
     // O(1)
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
 
     // 如果前几个是相同时间，那么一起弹出，否则只弹出第一个
     if(pAlarm_next != NULL){
@@ -335,87 +349,187 @@ void ltx_Sys_tick_tack(void){
 
 #endif
     
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
 }
 
 // 获取当前 tick 计数
 TickType_t ltx_Sys_get_tick(void){
 #ifdef ltx_cfg_USE_TICKLESS
     TickType_t tick_get;
-    _LTX_IRQ_DISABLE();
+    _LTX_CRITICAL_INTO();
     // 感觉应该要判断一下 systick 是否已经触发过重载
     tick_get = realTicks + (_ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val())/_SYSTICK_COUNT_PER_TICK;
-    _LTX_IRQ_ENABLE();
+    _LTX_CRITICAL_OUTO();
     return tick_get;
 #else
     return realTicks;
 #endif
 }
 
-// 调度器，一般由主循环执行，也可以放在 pendsv 之类的最低优先级的软中断里
-void ltx_Sys_scheduler(void){
-    struct ltx_Topic_stu *pTopic;
+// 调度器，一般由主循环执行，多核心/多线程 可重入。可以每个核的主循环都跑一个，也可以放在 rtos 的某一个或多个线程内
+#if (ltx_cfg_CORE_NUM > 1)
+void ltx_Sys_scheduler(uint8_t core_id){ // 似乎甚至可以调度器里面跑调度器套娃，根据 core id 用不同的唤醒信号。好像不行，里面有死循环退不出
+
+    // 真正可弹出的队列头。因为有些任务可能正在被其它核使用，避免回调被多核重入，所以绕过它弹出下一个可用的
+    struct ltx_Topic_stu *pTopic_real_head;
+    struct ltx_Topic_stu *pTopic_real_head_prev = &ltx_sys_topic_queue;
     struct ltx_Topic_subscriber_stu *pSubscriber;
     struct ltx_Topic_subscriber_stu *pSubscriber_next;
+    uint8_t callback_retval;
 
-#ifdef ltx_cfg_USE_IDLE_TASK
-    // 执行退出空闲休眠的钩子函数，估计不太好用，先这样吧
-    ltx_Hook_idle_out();
-#endif
-
-    do{
-        _LTX_CLEAR_SCHEDULE_FLAG(); // 清除调度标志位，为空闲休眠所设计
+    while(1){
         // 不断弹出话题队列第一个节点
-        if(ltx_sys_topic_queue.next != NULL){
-            _LTX_IRQ_DISABLE();
+        _LTX_CRITICAL_INTO();
 
-            if(ltx_sys_topic_queue_tail == ltx_sys_topic_queue.next){ // 只有一个节点，移动尾指针
-                ltx_sys_topic_queue_tail = &ltx_sys_topic_queue;
-            }else { // 队列里还有其他节点要处理，不退出循环，避免函数出入开销，提高效率
-                _LTX_SET_SCHEDULE_FLAG();
+        pTopic_real_head = ltx_sys_topic_queue.next;
+        // pTopic_real_head_prev = &ltx_sys_topic_queue;
+
+        while(ltx_sys_topic_queue.next != NULL){
+
+            switch(pTopic_real_head->state){
+                case 0x00: // 被取消，弹出不执行回调
+                case 0x02: // 正在被另一颗核心处理中，且被重复推入但又被取消，弹出不执行回调
+                    if(ltx_sys_topic_queue_tail == pTopic_real_head){ // 位于最后一个节点，移动尾指针
+                        ltx_sys_topic_queue_tail = pTopic_real_head_prev;
+                    }
+                    // 弹出 real_head
+                    pTopic_real_head_prev->next = pTopic_real_head->next;
+
+                    if(pTopic_real_head->next == NULL){ // 如果后面没有了，那就尝试从头遍历
+                        // 从头遍历
+                        pTopic_real_head = ltx_sys_topic_queue.next;
+                        pTopic_real_head_prev = &ltx_sys_topic_queue;
+                    }else {
+                        pTopic_real_head->next = NULL;
+                        pTopic_real_head = pTopic_real_head_prev->next;
+                    }
+                    // 继续遍历
+                    continue;
+
+                case 0x03: // 正在被另一颗核心处理中，且被重复推入，绕过它弹出下个可用事件，避免回调重入
+
+                    if(pTopic_real_head->next == NULL){ // 如果后面没有了，那就尝试从头遍历
+                        // 从头遍历
+                        pTopic_real_head = ltx_sys_topic_queue.next;
+                        pTopic_real_head_prev = &ltx_sys_topic_queue;
+                    }else {
+                        pTopic_real_head_prev = pTopic_real_head;
+                        pTopic_real_head = pTopic_real_head->next;
+                    }
+                    // 继续遍历
+                    continue;
+
+                case 0x01: // 正常弹出执行回调
+                    pTopic_real_head->state = 0x02; // 占有
+                    if(ltx_sys_topic_queue_tail == pTopic_real_head){ // 位于最后一个节点，移动尾指针
+                        ltx_sys_topic_queue_tail = pTopic_real_head_prev;
+                    }
+                    // 弹出 real_head
+                    pTopic_real_head_prev->next = pTopic_real_head->next;
+                    pTopic_real_head->next = NULL;
+
+                    // 执行回调
+                    // break;
             }
-            pTopic = ltx_sys_topic_queue.next; // 暂存指针
-            ltx_sys_topic_queue.next = pTopic->next; // 弹出
-            pTopic->next = NULL;
-
-            _LTX_IRQ_ENABLE();
-
-            if(!pTopic->flag_is_pending){ // 话题被取消
-                continue;
-            }
-            pTopic->flag_is_pending = 0; // 就绪标志位清零
             
-            pSubscriber = pTopic->subscriber_head.next;
+            callback_retval = 0;
+            pSubscriber = pTopic_real_head->subscriber_head.next;
             while(pSubscriber != NULL){
                 // 加一行 next 暂存，不然如果回调里把自己取消订阅了，那么 next 就是 NULL，那链表后续所有订阅这个话题的订阅者在这次话题发布都不会响应
                 pSubscriber_next = pSubscriber->next;
-                pSubscriber->callback_func(pSubscriber);
+                _LTX_CRITICAL_OUTO();
 
+                // 用户回调运行在非临界区
+                callback_retval |= pSubscriber->callback_func(pSubscriber);
+                // 运行完回调后，调度器不应该触碰 topic、subscriber 的任何成员变量，因为内存可能已经在回调中被用户释放
+
+                // 所以用户需要注意取消订阅的时机，如果越俎代庖帮别人(next)取消订阅并释放了内存，那下面这个就是野指针了，最好是它(next)自己回调里取消订阅
+                // 最好是丢给 ctx 去管理，会安全一点，也就是使用 wait_topic 组件
                 pSubscriber = pSubscriber_next;
+                _LTX_CRITICAL_INTO();
             }
+
+            // 回调执行完成后，占有标志位清零
+            if(!callback_retval){ // 用户没有释放 topic 的内存才能操作这个标志位，否则会访问野指针
+                pTopic_real_head->state &= (~0x02);
+            }
+
+            // 从头遍历
+            pTopic_real_head = ltx_sys_topic_queue.next;
+            pTopic_real_head_prev = &ltx_sys_topic_queue; // 设置为 pTopic_real_head 的前继
         }
-    }while(_LTX_GET_SCHEDULE_FLAG);
+        _LTX_CRITICAL_OUTO();
 
-#ifdef ltx_cfg_USE_IDLE_TASK
-    // 执行进入空闲休眠的钩子函数
-    ltx_Hook_idle_in();
+#ifdef ltx_cfg_USE_IDLE_HOOK
+        // 进入空闲钩子
+        ltx_Hook_idle_in(core_id);
 #endif
-}
-
-// 空闲任务，如果 ltx_Sys_scheduler 放在软中断里，那么这个才能使用并且放在 main 函数最后
-// 或者自己直接在主循环放个 while(1) 也是一样的
-ltx_weak void ltx_Sys_idle_task(void){
-    while(1){
-        // 可以进入休眠，等待中断唤醒
     }
 }
+#else
+// 单核版本
+void ltx_Sys_scheduler(uint8_t core_id){
+    struct ltx_Topic_stu *pTopic_real_head;
+    struct ltx_Topic_subscriber_stu *pSubscriber;
+    struct ltx_Topic_subscriber_stu *pSubscriber_next;
 
-// 进入空闲休眠前的钩子函数，一般用于关闭一些系统功能
-ltx_weak void ltx_Hook_idle_in(void){
+    while(1){
+        // 不断弹出话题队列第一个节点
+        _LTX_CRITICAL_INTO();
 
+        while(ltx_sys_topic_queue.next != NULL){
+            pTopic_real_head = ltx_sys_topic_queue.next;
+
+            if(ltx_sys_topic_queue_tail == ltx_sys_topic_queue.next){ // 位于最后一个节点，移动尾指针
+                ltx_sys_topic_queue_tail = &ltx_sys_topic_queue;
+            }
+            // 弹出
+            ltx_sys_topic_queue.next = pTopic_real_head->next;
+            pTopic_real_head->next = NULL;
+
+            if(pTopic_real_head->state){
+                pTopic_real_head->state = 0;
+
+                pSubscriber = pTopic_real_head->subscriber_head.next;
+                while(pSubscriber != NULL){
+                    // 加一行 next 暂存，不然如果回调里把自己取消订阅了，那么 next 就是 NULL，那链表后续所有订阅这个话题的订阅者在这次话题发布都不会响应
+                    pSubscriber_next = pSubscriber->next;
+                    _LTX_CRITICAL_OUTO();
+
+                    // 用户回调运行在非临界区
+                    pSubscriber->callback_func(pSubscriber);
+                    // 运行完回调后，调度器不应该触碰 topic、subscriber 的任何成员变量，因为内存可能已经在回调中被用户释放
+
+                    // 所以用户需要注意取消订阅的时机，如果越俎代庖帮别人(next)取消订阅并释放了内存，那下面这个就是野指针了，最好是它(next)自己回调里取消订阅
+                    // 最好是丢给 ctx 去管理，会安全一点，也就是使用 wait_topic 组件
+                    pSubscriber = pSubscriber_next;
+                    _LTX_CRITICAL_INTO();
+                }
+            }
+        }
+        _LTX_CRITICAL_OUTO();
+
+#ifdef ltx_cfg_USE_IDLE_HOOK
+        // 进入空闲钩子
+        ltx_Hook_idle_in(core_id);
+#endif
+    }
 }
+#endif
 
-// 退出空闲休眠后的钩子函数，一般用于恢复系统功能
-ltx_weak void ltx_Hook_idle_out(void){
 
+#ifdef ltx_cfg_USE_IDLE_HOOK
+// 进入空闲的钩子函数，一般用于关闭一些系统功能或者休眠，没有特殊要求则保留一句 __WFE(); 或者什么都不干
+ltx_weak void ltx_Hook_idle_in(uint8_t core_id){
+    // 样例：
+
+    // 判断是否长期空闲，决定是否关闭 xx 外设
+
+    // cpu 休眠，等待事件唤醒
+    // __WFE();
+    // 或者如果调度器跑在 rtos 线程内的话，则等待信号量
+    // 获取空闲时的tick = ltx_Sys_get_tick();
+    // 是否信号量超时 = 获取信号量(&sem_ltx, 超时时间为最近的 alarm 触发的倒计时);
+    // if(获取空闲时的tick + 最近的 alarm 触发的倒计时 <= ltx_Sys_get_tick()) 总之就是是否弹出闹钟链表头节点
 }
+#endif

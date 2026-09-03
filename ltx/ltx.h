@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 轻量级的事件驱动裸机调度框架，由闹钟和发布订阅机制构成。调度器可运行在软中断中，实现空闲任务/空闲休眠能力，支持 tickless
- * @version 3.5
+ * @version 4.0(Beta)
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -35,6 +35,9 @@
  *       2026-07-17 (3.4, 增加 ltx_Topic_publish_high_priority API，提供高优先级事件发布能力；删除遗留 timer 代码)
  *       2026-07-20 (3.5, 优化 ltx_Topic_publish_high_priority，省略不必要的启动调度信号，提高效率)
  * 
+ *       2026-09-xx (4.0, 重构，支持同构多核 SMP 调度；
+ *                              )
+ * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license Apache-2.0
  * 
@@ -54,13 +57,14 @@
     ((type *)((char *)(ptr) - (uintptr_t)(&((type *)0)->member)))
 
 // 组件结构体初始化默认参数
-#define _LTX_TOPIC_DEAFULT_CONFIG(self)                 {.flag_is_pending = 0, .subscriber_head = {.prev = NULL, .next = NULL}, .subscriber_tail = &(self.subscriber_head), .next = NULL}
+#define _LTX_TOPIC_DEAFULT_CONFIG()                     {.state = 0, .subscriber_head = {.prev = NULL, .next = NULL}, .next = NULL}
 #define _LTX_SUBSCRIBER_DEAFULT_CONFIG(callback)        {.callback_func = callback, .prev = NULL, .next = NULL}
 // #define _LTX_ALARM_DEAFULT_CONFIG                       {.topic = _LTX_TOPIC_DEAFULT_CONFIG, .prev = NULL, .next = NULL}
 
 // 话题订阅者
 struct ltx_Topic_subscriber_stu {
-    void (*callback_func)(void *param);
+    // 多核心/多线程 下，如果订阅者回调内释放了 topic 的内存，那么用户需要返回 1，否则返回 0。单核心/单线程 下返回值无效
+    uint8_t (*callback_func)(void *param);
 
     struct ltx_Topic_subscriber_stu *prev;
     struct ltx_Topic_subscriber_stu *next;
@@ -68,10 +72,21 @@ struct ltx_Topic_subscriber_stu {
 
 // 话题
 struct ltx_Topic_stu {
-    uint8_t flag_is_pending; // 话题就绪标志位，只有使用 ltx_Topic_publish 才会将其置一，手动置一无效。表示在就绪队列但是还没执行，此时手动置零可以取消这次执行
+    // 话题状态
+    // bit0: 就绪标志位，1 表示就绪待执行，0 表示被取消或者被某颗核心弹出执行回调中
+    // bit1: 处理中标志位，1 表示正在被某颗核心弹出使用中，0 表示未在被使用中
+    // bit2~bit7: 保留
+    // 行为：
+    // 生产者发布事件时，会置位 bit0 为 1，并且判断是否已经存在于事件队列中，存在则不重复推入
+    // 调度器弹出事件时，如果 bit0 为 0， bit1 为 0，则认为该事件被取消，弹出不执行回调
+    //                  如果 bit0 为 0， bit1 为 1，则认为该事件正在被另一颗核心处理中，并且又被推入但又被取消，弹出不执行回调
+    //                  如果 bit0 为 1， bit1 为 0，则弹出事件，置位 bit0 为 0，置位 bit1 为 1，并执行其回调
+    //                  如果 bit0 为 1， bit1 为 1，则认为该事件正在被另一颗核心处理中，暂时先不弹出他，弹出队列的下一个合适事件
+    volatile uint8_t state;
 
     struct ltx_Topic_subscriber_stu subscriber_head;
-    struct ltx_Topic_subscriber_stu *subscriber_tail;
+    // 有点意义不明，删了
+    // struct ltx_Topic_subscriber_stu *subscriber_tail;
 
     struct ltx_Topic_stu *next;
 };
@@ -91,7 +106,7 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down);
 void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm);
 
 void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
-void ltx_Topic_unsubscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscriber_stu *subscriber);
+void ltx_Topic_unsubscribe(struct ltx_Topic_subscriber_stu *subscriber);
 // 发布话题，默认版本。将事件对象推入事件队列最末尾
 void ltx_Topic_publish(struct ltx_Topic_stu *topic);
 // 发布话题，高优先级版本。将事件对象插队事件队列头，事件可以更快得到处理
@@ -103,16 +118,12 @@ void ltx_Sys_tick_tack(void);
 // 获取系统自开机以来的 tick 计数，如果开了 tickless，那么要用这个替换掉其他库的获取 tick 的函数
 TickType_t ltx_Sys_get_tick(void);
 
-// 调度器，一般放在 main 函数运行，开启空闲任务功能则放在 PendSV 之类的最低优先级的软中断里
-void ltx_Sys_scheduler(void);
+// 调度器，一般放在 main 函数运行
+void ltx_Sys_scheduler(uint8_t core_id);
 
-#ifdef ltx_cfg_USE_IDLE_TASK
-// 空闲任务，如果 ltx_Sys_scheduler 放在软中断里，那么这个才能使用并且放在 main 函数最后
-void ltx_Sys_idle_task(void);
-// 开启空闲任务或者 tickless 的钩子函数，用于在进入休眠前或退出休眠后执行一些低功耗相关操作，函数内部不能有耗时操作
-// 最好是开了 tickless 再用
-void ltx_Hook_idle_in(void);
-void ltx_Hook_idle_out(void);
+#ifdef ltx_cfg_USE_IDLE_HOOK
+// 空闲钩子函数，用于在进入休眠前或退出休眠后执行一些低功耗相关操作，函数内部不能有耗时操作
+void ltx_Hook_idle_in(uint8_t core_id);
 #endif
 
 #endif // __LTX_H__

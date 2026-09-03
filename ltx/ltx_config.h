@@ -6,32 +6,37 @@
 /* ------------------- 系统时钟单位 tick 数据类型 ------------------- */
 typedef uint32_t TickType_t;
 
+/* ------------------------- 核心/线程 数量 ------------------------- */
+#define ltx_cfg_CORE_NUM            2
 
-/* ------------------- 空闲任务与 tickless 开关宏 ------------------- */
-// 需要空闲任务则打开此宏，并将调度器从主循环转移到最低优先级的软中断中
-// #define ltx_cfg_USE_IDLE_TASK
-// 需要 tickless 则打开此宏，前提是必须打开空闲任务宏
+/* ------------------- 空闲钩子与 tickless 开关宏 ------------------- */
+// 需要空闲钩子则打开此宏，不打开则事件循环将不断尝试弹出事件队列头
+// #define ltx_cfg_USE_IDLE_HOOK
+// 需要 tickless 钩子则打开此宏，V4 版本将不会由调度器操作硬件定时器，而是通过 tickless 钩子传递下次唤醒的时间，由外部决定
 // #define ltx_cfg_USE_TICKLESS
+
+// 选择一种时间驱动方案
+// 1、将 ltx_Sys_tick_tack() 放置到硬件定时器中断内弹出闹钟
+#define SYSTICK_TYPE_INTERRUPT      1
+// 2、调度器通过空闲时判断外部时间戳来决定是否弹出闹钟
+#define SYSTICK_TYPE_TIMESTAMP      2
+
+#define ltx_cfg_SYSTICK_TYPE        SYSTICK_TYPE_INTERRUPT
 
 /* ------------------- 选择一个对应架构的配置文件 ------------------- */
 #include "ltx_arch_arm_cortex_m.h"
 // #include "ltx_arch_xxx.h"
 
-
 /* ------------------- 以下内容用户一般不需要修改 ------------------- */
 
-// 未开启空闲任务功能的默认值
-#ifndef ltx_cfg_USE_IDLE_TASK
-    // 设置调度标志位，表示需要进行调度，可设置为置位软中断标志位
+// 未开启空闲钩子功能的默认值
+#ifndef ltx_cfg_USE_IDLE_HOOK
+    // 设置调度标志位，表示需要进行调度，可配置为 发布 rtos 信号量、产生 cpu 唤醒事件 等等
     #define _LTX_SET_SCHEDULE_FLAG()    do{}while(0)
-    // 获取调度标志位，可设置为读软中断标志位
-    #define _LTX_GET_SCHEDULE_FLAG      1
-    // 清除调度标志位，可设置为清除软中断标志位
-    #define _LTX_CLEAR_SCHEDULE_FLAG()  do{}while(0)
-#endif
-
-#ifndef _LTX_ARCH_SELECTED
-    #error "Please select the hardware architecture you are using!"
+    // 获取调度标志位
+    // #define _LTX_GET_SCHEDULE_FLAG      1
+    // 清除调度标志位
+    // #define _LTX_CLEAR_SCHEDULE_FLAG()  do{}while(0)
 #endif
 
 // 编译器相关宏定义，偷自 rtthread

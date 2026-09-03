@@ -1,55 +1,44 @@
 #ifndef __LTX_ARCH_ARM_CORTEX_M_H__
 #define __LTX_ARCH_ARM_CORTEX_M_H__
 
-#define _LTX_ARCH_SELECTED
-
 #include "ltx_config.h"
 
 // 有时候，内存不同步可能会导致一些系统配置不起作用，从而出现一些奇奇怪怪的现象
-// 您可以考虑合理插入 __DSB(); __ISB(); 等等指令来冲刷流水线
+// 您可以考虑合理插入 DMB/DSB/ISB 等等指令来冲刷流水线
 
-// 开关中断宏
-#define _LTX_IRQ_ENABLE()                       __enable_irq()
-#define _LTX_IRQ_DISABLE()                      do{__disable_irq(); __DSB(); __ISB();}while(0)
+// 进出临界区宏
+#if (ltx_cfg_CORE_NUM == 1)
+    // 单核只用关中断
+    #define _LTX_CRITICAL_INTO()                do{__disable_irq(); __DMB();}while(0)
+    #define _LTX_CRITICAL_OUTO()                do{__DMB(); __enable_irq();}while(0)
+#else
+    typedef uint32_t spin_num_t;
+    extern volatile spin_num_t __g_spin_lock;
+    // 多核则先关中断再自旋
+    #define _LTX_CRITICAL_INTO()                do{ \
+                                                    __disable_irq(); /* 防止核心自己的任务与中断死锁 */ \
+                                                    while(1){ /* 自旋，防止多核竞争 */ \
+                                                        if(__LDREXW(&__g_spin_lock) == 0){ /* 读取并标记独占 */\
+                                                            if(__STREXW(1, &__g_spin_lock) == 0){ /* 尝试写入 1 */ \
+                                                                break; /* 获取锁成功 */ \
+                                                            } \
+                                                        } \
+                                                    } \
+                                                    __DMB(); \
+                                                }while(0)
 
-// 开启空闲任务的话，设置为触发 最低优先级 的软中断
-#ifdef ltx_cfg_USE_IDLE_TASK
-    // 设置为置位 PendSV 标志位，触发其运行
-    #define _LTX_SET_SCHEDULE_FLAG()            (SCB->ICSR = SCB_ICSR_PENDSVSET_Msk)
-    // 设置为读 PendSV 标志位
-    #define _LTX_GET_SCHEDULE_FLAG              (SCB->ICSR & SCB_ICSR_PENDSVSET_Msk)
-    // 设置为清除 PendSV 标志位
-    #define _LTX_CLEAR_SCHEDULE_FLAG()          (SCB->ICSR = SCB_ICSR_PENDSVCLR_Msk)
+    #define _LTX_CRITICAL_OUTO()                do{ \
+                                                    __DMB(); \
+                                                    __STREXW(0, &__g_spin_lock); \
+                                                    __enable_irq(); \
+                                                }while(0)
 #endif
 
-// 开启 tickless 的话
-#ifdef ltx_cfg_USE_TICKLESS
-    // 暂停 systick
-    #define _ltx_Sys_systick_pause()            (SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk)
-    // 恢复 systick
-    #define _ltx_Sys_systick_resume()           (SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk)
-    // 设置 systick 重载值
-    #define _ltx_Sys_systick_set_reload(reload) (SysTick->LOAD = (uint32_t)(reload))
-    // 获取 systick 重载值
-    #define _ltx_Sys_systick_get_reload()       (SysTick->LOAD)
-    // 清除 systick 计数值为重载值
-    #define _ltx_Sys_systick_clr_val()          (SysTick->VAL = 0UL)
-    // 获取 systick 计数值
-    #define _ltx_Sys_systick_get_val()          (SysTick->VAL)
-    // 获取 systick 中断标志位，用于判断是否溢出/重载，但是 arm 的 systick 的中断标志位会在读取后被清除，，，
-    #define _ltx_Sys_systick_get_flag()         (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk)
-    // 清除 systick 中断标志位，对于 arm cortex-m，COUNTFLAG 为只读位，需通过读取 CTRL 寄存器清除
-    #define _ltx_Sys_systick_clr_flag()         ((void)SysTick->CTRL)
-
-    // 告知调度器 systick 的频率
-    #define _SYSTICK_FREQ                       8000000
-    
-    // arm cortex-m systick 最大重载值为 24 位
-    #define _SYSTICK_MAX_RELOAD                 0xFFFFFF
-    // systick 一个 tick 的计数值(以 1ms 为一个 tick)
-    #define _SYSTICK_COUNT_PER_TICK             (_SYSTICK_FREQ/1000)
-    // systick 最大 tick 计数值，预留一个，避免溢出
-    #define _SYSTICK_MAX_TICK                   (_SYSTICK_MAX_RELOAD/_SYSTICK_COUNT_PER_TICK - 1)
+// 开启空闲钩子的话，设置触发唤醒 cpu 事件，如果事件循环作为 rtos 的一个线程，那么可以设置为发送信号量
+#ifdef ltx_cfg_USE_IDLE_HOOK
+    #define _LTX_SET_SCHEDULE_FLAG()            __SEV()
+    // 清除标志位
+    // #define _LTX_CLEAR_SCHEDULE_FLAG()          do{__SEVL(); __WFE();}while(0)
 #endif
 
 #endif // __LTX_ARCH_ARM_CORTEX_M_H__
