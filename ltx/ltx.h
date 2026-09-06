@@ -35,8 +35,10 @@
  *       2026-07-17 (3.4, 增加 ltx_Topic_publish_high_priority API，提供高优先级事件发布能力；删除遗留 timer 代码)
  *       2026-07-20 (3.5, 优化 ltx_Topic_publish_high_priority，省略不必要的启动调度信号，提高效率)
  * 
- *       2026-09-xx (4.0, 重构，支持同构多核 SMP 调度；
- *                              )
+ *       2026-09-xx (4.0, 重构，支持同构多核 SMP 调度，预留回调前临界区内钩子，用于避免 ctx 回调被多核重入；
+ *                              删除话题内订阅者链表尾指针，取消订阅不再需要提供 topic 指针，初始化 topic 与 alarm 也会更简单；
+ *                              tickless 不再由调度器操作硬件定时器实现，调度器只返回下次唤醒时刻，由外部在唤醒时机到达后触发调度信号恢复调度器；
+ *                              支持时间戳调度；)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license Apache-2.0
@@ -59,7 +61,7 @@
 // 组件结构体初始化默认参数
 #define _LTX_TOPIC_DEAFULT_CONFIG()                     {.state = 0, .subscriber_head = {.prev = NULL, .next = NULL}, .next = NULL}
 #define _LTX_SUBSCRIBER_DEAFULT_CONFIG(callback)        {.callback_func = callback, .prev = NULL, .next = NULL}
-// #define _LTX_ALARM_DEAFULT_CONFIG                       {.topic = _LTX_TOPIC_DEAFULT_CONFIG, .prev = NULL, .next = NULL}
+#define _LTX_ALARM_DEAFULT_CONFIG()                     {.diff_tick = 0, .topic = _LTX_TOPIC_DEAFULT_CONFIG(), .prev = NULL, .next = NULL}
 
 // 话题订阅者
 struct ltx_Topic_subscriber_stu {
@@ -115,15 +117,12 @@ void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic);
 
 // 系统嘀嗒，由 systick/硬件定时器 中断服务函数调用
 void ltx_Sys_tick_tack(void);
-// 获取系统自开机以来的 tick 计数，如果开了 tickless，那么要用这个替换掉其他库的获取 tick 的函数
+#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
+// 获取系统自开机以来的 tick 计数，如果开了 tickless 或者改成时间戳调度，那么用户要把这个实现为自己平台的获取 tick 的函数
 TickType_t ltx_Sys_get_tick(void);
+#endif
 
 // 调度器，一般放在 main 函数运行
 void ltx_Sys_scheduler(uint8_t core_id);
-
-#ifdef ltx_cfg_USE_IDLE_HOOK
-// 空闲钩子函数，用于在进入休眠前或退出休眠后执行一些低功耗相关操作，函数内部不能有耗时操作
-void ltx_Hook_idle_in(uint8_t core_id);
-#endif
 
 #endif // __LTX_H__

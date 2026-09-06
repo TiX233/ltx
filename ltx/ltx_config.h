@@ -7,21 +7,25 @@
 typedef uint32_t TickType_t;
 
 /* ------------------------- 核心/线程 数量 ------------------------- */
-#define ltx_cfg_CORE_NUM            2
+#define ltx_cfg_CORE_NUM                2
 
-/* ------------------- 空闲钩子与 tickless 开关宏 ------------------- */
-// 需要空闲钩子则打开此宏，不打开则事件循环将不断尝试弹出事件队列头
-// #define ltx_cfg_USE_IDLE_HOOK
-// 需要 tickless 钩子则打开此宏，V4 版本将不会由调度器操作硬件定时器，而是通过 tickless 钩子传递下次唤醒的时间，由外部决定
-// #define ltx_cfg_USE_TICKLESS
+/* ------------------- 空闲休眠与 tickless 开关宏 ------------------- */
+// 需要空闲休眠则打开此宏，不打开则事件循环将不断尝试弹出事件队列头，打开后会进入用户实现的休眠回调
+#define ltx_cfg_USE_IDLE_SLEEP
+
+// 需要 tickless 则打开此宏，前提是开启空闲休眠宏
+// V4 版本将不会由调度器操作硬件定时器，而是通过 ltx_Sys_set_next_weak 传递下次唤醒的时间，由外部决定唤醒信号发送时机
+// 开启 tickless 可能会影响实时性。
+// 感觉调度器层面 tickless 有点鸡肋，真要低功耗肯定是业务层面判断是否有待办然后决定关外设以及深度休眠
+#define ltx_cfg_USE_TICKLESS
 
 // 选择一种时间驱动方案
 // 1、将 ltx_Sys_tick_tack() 放置到硬件定时器中断内弹出闹钟
-#define SYSTICK_TYPE_INTERRUPT      1
+#define SYSTICK_TYPE_INTERRUPT          1
 // 2、调度器通过空闲时判断外部时间戳来决定是否弹出闹钟
-#define SYSTICK_TYPE_TIMESTAMP      2
+#define SYSTICK_TYPE_TIMESTAMP          2
 
-#define ltx_cfg_SYSTICK_TYPE        SYSTICK_TYPE_INTERRUPT
+#define ltx_cfg_SYSTICK_TYPE            SYSTICK_TYPE_INTERRUPT
 
 /* ------------------- 选择一个对应架构的配置文件 ------------------- */
 #include "ltx_arch_arm_cortex_m.h"
@@ -29,12 +33,65 @@ typedef uint32_t TickType_t;
 
 /* ------------------- 以下内容用户一般不需要修改 ------------------- */
 
-// 未开启空闲钩子功能的默认值
-#ifndef ltx_cfg_USE_IDLE_HOOK
+// 多核下 ctx 防重入钩子
+#if 1
+#if (ltx_cfg_CORE_NUM > 1)
+    #define ltx_cfg_USE_CTX
+    // 调用订阅者回调前，离开临界区前的自定义钩子
+    // 此处为做标记防止 ctx 任务的等待事件回调和超时回调同时被多核触发导致业务重入
+    // 也就是将本该在单核下的业务函数内处理的内容在多核下搬到 ltx 临界区内
+    #define ltx_hook_before_user_call_back()    do { \
+                                                    if(pSubscriber->callback_func == _co_alarm_cb){ \
+                                                        struct coro_stu *pCo = container_of(pSubscriber, struct coro_stu, subscriber_alarm); \
+                                                        if(pCo->topic_wait_for != NULL){ /* 等待事件超时 */ \
+                                                            /* 取消订阅事件，也许可以不做检查，暂时先保留 if */ \
+                                                            if(pCo->subscriber_topic.prev != NULL){ \
+                                                                pCo->subscriber_topic.prev->next = pCo->subscriber_topic.next; \
+                                                                if(pCo->subscriber_topic.next != NULL){ \
+                                                                    pCo->subscriber_topic.next->prev = pCo->subscriber_topic.prev; \
+                                                                    pCo->subscriber_topic.next = NULL; \
+                                                                } \
+                                                                pCo->subscriber_topic.prev = NULL; \
+                                                            } \
+                                                            pCo->topic_wait_for = NULL; \
+                                                            pCo->something |= 0x80000000; \
+                                                        } \
+                                                    }else if(pSubscriber->callback_func == _co_subscriber_cb){ \
+                                                        struct coro_stu *pCo = container_of(pSubscriber, struct coro_stu, subscriber_topic); \
+                                                        /* 关闭超时闹钟 */ \
+                                                        pCo->alarm_next_run.topic.state &= (~0x01); \
+                                                        if(pCo->alarm_next_run.prev != NULL){ \
+                                                            pCo->alarm_next_run.prev->next = pCo->alarm_next_run.next; \
+                                                            if(pCo->alarm_next_run.next != NULL){ \
+                                                                pCo->alarm_next_run.next->prev = pCo->alarm_next_run.prev; \
+                                                                pCo->alarm_next_run.next->diff_tick += pCo->alarm_next_run.diff_tick; \
+                                                                pCo->alarm_next_run.next = NULL; \
+                                                            } \
+                                                            pCo->alarm_next_run.prev = NULL; \
+                                                        } \
+                                                        /* 取消订阅该事件 */ \
+                                                        if(pSubscriber->prev != NULL){ \
+                                                            pSubscriber->prev->next = pSubscriber->next; \
+                                                            if(pSubscriber->next != NULL){ \
+                                                                pSubscriber->next->prev = pSubscriber->prev; \
+                                                                pSubscriber->next = NULL; \
+                                                            } \
+                                                            pSubscriber->prev = NULL; \
+                                                        } \
+                                                        callback_retval |= 0x02; \
+                                                    } \
+                                                }while(0)
+    #define ltx_hook_after_user_call_back()
+#else
+    #define ltx_hook_before_user_call_back()
+    #define ltx_hook_after_user_call_back()
+#endif
+#endif
+
+// 未开启空闲休眠功能的默认值
+#ifndef ltx_cfg_USE_IDLE_SLEEP
     // 设置调度标志位，表示需要进行调度，可配置为 发布 rtos 信号量、产生 cpu 唤醒事件 等等
     #define _LTX_SET_SCHEDULE_FLAG()    do{}while(0)
-    // 获取调度标志位
-    // #define _LTX_GET_SCHEDULE_FLAG      1
     // 清除调度标志位
     // #define _LTX_CLEAR_SCHEDULE_FLAG()  do{}while(0)
 #endif

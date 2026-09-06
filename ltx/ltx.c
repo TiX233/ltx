@@ -1,11 +1,21 @@
 #include "ltx.h"
 
-volatile TickType_t realTicks; // 系统时间，溢出处理感觉不太需要，反正 alarm 内部有自己的计数器
-volatile TickType_t intervalTicks = 1; // systick 调用间隔，不需要 tickless 的话这个固定为 1ms，开启 tickless 的话这个会动态变化
+#if (ltx_cfg_CORE_NUM > 1)
+#ifdef ltx_cfg_USE_CTX
+#include "ctx.h"
+#endif
+#endif
+
+// SYSTICK_TYPE_INTERRUPT 模式下由调度器管理时间戳
+#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
+    volatile TickType_t real_ticks; // 系统时间，溢出处理感觉不太需要，反正 alarm 内部有自己的计数器
+#elif (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_TIMESTAMP)
+    volatile TickType_t last_sleep_tick; // 上次休眠的时刻
+#endif
 
 #if (ltx_cfg_CORE_NUM > 1)
-// 多核心下全局自旋变量
-volatile spin_num_t __g_spin_lock = 0;
+    // 多核心下全局自旋变量/自旋锁
+    spin_type_t __g_spin_lock;
 #endif
 
 // ========== 活跃组件列表 ==========
@@ -45,48 +55,6 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
         alarm->prev = NULL;
     }
 
-// 计算已经休眠的时间
-#ifdef ltx_cfg_USE_TICKLESS
-    TickType_t tick_dec;
-    _ltx_Sys_systick_pause(); // 暂停 systick
-    if(_ltx_Sys_systick_get_flag()){ // 如果 systick 已经触发了但还没进 systick 中断
-        tick_dec = intervalTicks - 1;
-    }else {
-        tick_dec = (_ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val())/_SYSTICK_COUNT_PER_TICK;
-        // 理论上应该不会把为 0 的计数值赋值给重载值，因为会由于中断标志位触发而进上一个分支
-        // 或许要减几个来补偿一下，但是要判断，不然会小于零，算了，真要搞高精度定时用啥 systick，更别说开了 tickless 唤醒也慢
-        // 好像有点画蛇添足
-        // _ltx_Sys_systick_set_reload(_ltx_Sys_systick_get_val());
-        // _ltx_Sys_systick_clr_val(); // 触发重载，不需要吧，反正已经等于重载值了
-    }
-    _ltx_Sys_systick_resume(); // 恢复 systick
-    
-    intervalTicks -= tick_dec; // 理论上应该不会减成零...先不做检查
-    realTicks += tick_dec;
-
-    if(ltx_sys_alarm_list.next != NULL){ // 首个任务减去已经休眠的时间
-        ltx_sys_alarm_list.next->diff_tick -= tick_dec;
-    }else { // 组件链表没有任务
-        alarm->diff_tick = tick_count_down;
-        intervalTicks = (alarm->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : alarm->diff_tick;
-        ltx_sys_alarm_list.next = alarm;
-        alarm->prev = &ltx_sys_alarm_list;
-
-    _ltx_Sys_systick_pause(); // 暂停 systick
-        // 虽然会导致 systick 时间错位，但是应该影响不大，反正只有这个一个任务
-        // 对于只有一个每 1ms 执行一次的任务的情况，那么 systick 实际周期会大于 1ms，但是既然每个毫秒都要调用，为什么还要开 tickless
-        _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1); // 或许应该多减几顺便把这两条语句的时间补偿上去？
-        _ltx_Sys_systick_clr_val(); // 触发重载
-
-        _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
-
-    _ltx_Sys_systick_resume(); // 恢复 systick
-    
-        _LTX_CRITICAL_OUTO();
-        return ;
-    }
-#endif
-
     // 插入节点，O(N)，总比 V2 的 systick 每个 tick 一次 O(N) 要好一点
     // 不过对于频繁的任务，比如几毫秒一次，那其实每次只要遍历头部几个就能插入了，也接近 O(1)，
     // 对于不频繁的任务，可能几百毫秒才一次 O(N)，所以 V3 事实上是比 V2 要高效的
@@ -100,12 +68,8 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
             pAlarm->next = alarm;
             alarm->next->prev = alarm;
 
-#ifdef ltx_cfg_USE_TICKLESS
-            goto TAG_set_tickless; // 省得写两次以后忘了改某一个
-#else
             _LTX_CRITICAL_OUTO();
             return ;
-#endif
         }
         tick_add += pAlarm->next->diff_tick;
 
@@ -116,26 +80,6 @@ void ltx_Alarm_add(struct ltx_Alarm_stu *alarm, TickType_t tick_count_down){
     alarm->prev = pAlarm;
     pAlarm->next = alarm;
 
-// 如果启用 tickless
-#ifdef ltx_cfg_USE_TICKLESS
-TAG_set_tickless:    
-    intervalTicks = (ltx_sys_alarm_list.next->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : ltx_sys_alarm_list.next->diff_tick;
-
-    _ltx_Sys_systick_pause(); // 暂停 systick
-#if 0
-    // 不知道为什么用了这个补偿的话 systick 有概率直接触发
-    _ltx_Sys_systick_set_reload((_ltx_Sys_systick_get_val()%_SYSTICK_COUNT_PER_TICK) + (intervalTicks-1)*_SYSTICK_COUNT_PER_TICK - 1);
-    // _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - (_ltx_Sys_systick_get_val()%_SYSTICK_COUNT_PER_TICK)); // - 1);
-#else
-    // 不补偿，会导致 systick 被推迟一点
-    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1);
-#endif
-    _ltx_Sys_systick_clr_val(); // 触发重载
-    _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
-    _ltx_Sys_systick_resume(); // 恢复 systick
-    
-#endif
-
     _LTX_CRITICAL_OUTO();
 }
 
@@ -144,23 +88,18 @@ void ltx_Alarm_remove(struct ltx_Alarm_stu *alarm){
     // 移除，O(1)
     _LTX_CRITICAL_INTO();
 
-    if(alarm->prev == NULL){ // 已经不在活跃列表中
-        // 移除可能已经就绪的 topic
-        alarm->topic.state &= (~0x01); // 就绪标志位清零
-        _LTX_CRITICAL_OUTO();
-        return ;
-    }
-
-    alarm->prev->next = alarm->next;
-    if(alarm->next != NULL){
-        alarm->next->prev = alarm->prev;
-        alarm->next->diff_tick += alarm->diff_tick; // 应该不会溢出
-        alarm->next = NULL;
-    }
-    alarm->prev = NULL;
-
     // 移除可能已经就绪的 topic
     alarm->topic.state &= (~0x01); // 就绪标志位清零
+
+    if(alarm->prev != NULL){ // 在活跃列表中
+        alarm->prev->next = alarm->next;
+        if(alarm->next != NULL){
+            alarm->next->prev = alarm->prev;
+            alarm->next->diff_tick += alarm->diff_tick; // 应该不会溢出
+            alarm->next = NULL;
+        }
+        alarm->prev = NULL;
+    }
 
     _LTX_CRITICAL_OUTO();
 }
@@ -184,8 +123,8 @@ void ltx_Topic_subscribe(struct ltx_Topic_stu *topic, struct ltx_Topic_subscribe
     subscriber->prev = &topic->subscriber_head;
     if(topic->subscriber_head.next != NULL){
         topic->subscriber_head.next->prev = subscriber;
-        topic->subscriber_head.next = subscriber;
     }
+    topic->subscriber_head.next = subscriber;
 
     _LTX_CRITICAL_OUTO();
 }
@@ -265,21 +204,23 @@ void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic){
 }
 
 // ========== 系统调度相关 ==========
+#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
 // 系统嘀嗒，由 systick/硬件定时器 中断服务函数调用
 void ltx_Sys_tick_tack(void){
-    realTicks += intervalTicks;
 
-    // struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
-    struct ltx_Alarm_stu *pAlarm_next = ltx_sys_alarm_list.next; // 在移除闹钟时暂存它的 next 指针
+    real_ticks ++;
 
     // O(1)
     _LTX_CRITICAL_INTO();
 
+    // struct ltx_Alarm_stu *pAlarm = &(ltx_sys_alarm_list);
+    struct ltx_Alarm_stu *pAlarm_next = ltx_sys_alarm_list.next; // 在移除闹钟时暂存它的 next 指针
+
     // 如果前几个是相同时间，那么一起弹出，否则只弹出第一个
     if(pAlarm_next != NULL){
-        if(pAlarm_next->diff_tick <= intervalTicks){ // 时间到，弹出
+        if(pAlarm_next->diff_tick <= 1){ // 时间到，弹出
             // pAlarm_next->diff_tick = _ltx_Sys_systick_get_reload(); // 调试用
-            pAlarm_next->topic.flag_is_pending = 1;
+            pAlarm_next->topic.state |= 1;
             if(!(pAlarm_next->topic.next != NULL || ltx_sys_topic_queue_tail == &(pAlarm_next->topic))){ // 不存在于话题队列，推入
                 ltx_sys_topic_queue_tail->next = &(pAlarm_next->topic);
                 ltx_sys_topic_queue_tail = &(pAlarm_next->topic);
@@ -299,7 +240,7 @@ void ltx_Sys_tick_tack(void){
                     pAlarm_next->prev = &ltx_sys_alarm_list;
                     if(pAlarm_next->diff_tick == 0){
                         // 弹出
-                        pAlarm_next->topic.flag_is_pending = 1;
+                        pAlarm_next->topic.state |= 1;
                         if(!(pAlarm_next->topic.next != NULL || ltx_sys_topic_queue_tail == &(pAlarm_next->topic))){ // 不存在于话题队列，推入
                             ltx_sys_topic_queue_tail->next = &(pAlarm_next->topic);
                             ltx_sys_topic_queue_tail = &(pAlarm_next->topic);
@@ -317,54 +258,24 @@ void ltx_Sys_tick_tack(void){
                 }
             }
         }else { // 时间还没到，减少首个元素的时间差
-            pAlarm_next->diff_tick -= intervalTicks;
+            pAlarm_next->diff_tick -= 1;
         }
     }
-
-// 如果开启了 tickless 功能则计算下次唤醒的时间
-#ifdef ltx_cfg_USE_TICKLESS
-
-    pAlarm_next = ltx_sys_alarm_list.next;
-    if(pAlarm_next != NULL){
-        intervalTicks = (pAlarm_next->diff_tick > _SYSTICK_MAX_TICK) ? _SYSTICK_MAX_TICK : pAlarm_next->diff_tick;
-    }else { // 没有活跃闹钟了，以 systick 最大时间休眠
-        intervalTicks = _SYSTICK_MAX_TICK;
-    }
-
-    // 应该不需要判断是否已经重载过，毕竟这里是 systick 中断，应该不会拖太久才被调用
-    // 其他中断要是能抢几个毫秒的中断不放手那只能说代码够烂
-    _ltx_Sys_systick_pause(); // 暂停 systick
-
-#if 0
-    // 补偿
-    uint32_t systick_val = _ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val();
-    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1 - systick_val); // 或许应该多减几顺便把这两条语句的时间补偿上去？
-#else
-    _ltx_Sys_systick_set_reload(intervalTicks*_SYSTICK_COUNT_PER_TICK - 1);
-#endif
-    _ltx_Sys_systick_clr_val(); // 触发重载
-
-    _ltx_Sys_systick_clr_flag(); // 清除标志位，避免已经触发
-    _ltx_Sys_systick_resume(); // 恢复 systick
-
-#endif
     
     _LTX_CRITICAL_OUTO();
 }
-
-// 获取当前 tick 计数
-TickType_t ltx_Sys_get_tick(void){
-#ifdef ltx_cfg_USE_TICKLESS
-    TickType_t tick_get;
-    _LTX_CRITICAL_INTO();
-    // 感觉应该要判断一下 systick 是否已经触发过重载
-    tick_get = realTicks + (_ltx_Sys_systick_get_reload() - _ltx_Sys_systick_get_val())/_SYSTICK_COUNT_PER_TICK;
-    _LTX_CRITICAL_OUTO();
-    return tick_get;
-#else
-    return realTicks;
 #endif
+
+// 获取当前 tick 计数，如果用户选择 ltx_cfg_SYSTICK_TYPE 为 SYSTICK_TYPE_INTERRUPT，那么不需要自定义 ltx_Sys_get_tick
+// 如果 ltx_cfg_SYSTICK_TYPE 为 SYSTICK_TYPE_TIMESTAMP，那么下面这个要由用户改为自己平台的获取时间戳的实现
+#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
+ltx_weak 
+TickType_t ltx_Sys_get_tick(void){
+
+    return real_ticks;
 }
+#endif
+
 
 // 调度器，一般由主循环执行，多核心/多线程 可重入。可以每个核的主循环都跑一个，也可以放在 rtos 的某一个或多个线程内
 #if (ltx_cfg_CORE_NUM > 1)
@@ -437,6 +348,7 @@ void ltx_Sys_scheduler(uint8_t core_id){ // 似乎甚至可以调度器里面跑
             while(pSubscriber != NULL){
                 // 加一行 next 暂存，不然如果回调里把自己取消订阅了，那么 next 就是 NULL，那链表后续所有订阅这个话题的订阅者在这次话题发布都不会响应
                 pSubscriber_next = pSubscriber->next;
+                ltx_hook_before_user_call_back();
                 _LTX_CRITICAL_OUTO();
 
                 // 用户回调运行在非临界区
@@ -447,6 +359,7 @@ void ltx_Sys_scheduler(uint8_t core_id){ // 似乎甚至可以调度器里面跑
                 // 最好是丢给 ctx 去管理，会安全一点，也就是使用 wait_topic 组件
                 pSubscriber = pSubscriber_next;
                 _LTX_CRITICAL_INTO();
+                ltx_hook_after_user_call_back();
             }
 
             // 回调执行完成后，占有标志位清零
@@ -458,12 +371,24 @@ void ltx_Sys_scheduler(uint8_t core_id){ // 似乎甚至可以调度器里面跑
             pTopic_real_head = ltx_sys_topic_queue.next;
             pTopic_real_head_prev = &ltx_sys_topic_queue; // 设置为 pTopic_real_head 的前继
         }
+        // 时间戳调度，在事件队列空闲时判断是否有闹钟需要弹出
+        #if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_TIMESTAMP)
+            TickType_t tick_now = ltx_Sys_get_tick();
+
+
+        #endif
         _LTX_CRITICAL_OUTO();
 
-#ifdef ltx_cfg_USE_IDLE_HOOK
-        // 进入空闲钩子
-        ltx_Hook_idle_in(core_id);
-#endif
+        #if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
+            
+        #elif (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_TIMESTAMP)
+            
+        #endif
+
+        #ifdef ltx_cfg_USE_IDLE_HOOK
+            // 进入空闲钩子
+            ltx_Hook_idle_in(core_id);
+        #endif
     }
 }
 #else
