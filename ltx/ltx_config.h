@@ -5,6 +5,10 @@
 
 /* ------------------- 系统时钟单位 tick 数据类型 ------------------- */
 typedef uint32_t TickType_t;
+// 最大延时
+#define LTX_MAX_TICK                    (0xFFFFFFFF-1)
+// 无限延时，如果设置闹钟时给的是这个那么就不会将闹钟加入闹钟链表
+#define LTX_INFINITE_TICK               (0xFFFFFFFF)
 
 /* ------------------------- 核心/线程 数量 ------------------------- */
 #define ltx_cfg_CORE_NUM                2
@@ -14,7 +18,7 @@ typedef uint32_t TickType_t;
 #define ltx_cfg_USE_IDLE_SLEEP
 
 // 需要 tickless 则打开此宏，前提是开启空闲休眠宏
-// V4 版本将不会由调度器操作硬件定时器，而是通过 ltx_Sys_set_next_weak 传递下次唤醒的时间，由外部决定唤醒信号发送时机
+// V4 版本将不会由调度器操作硬件定时器，而是通过 ltx_hook_idle_in 传递下次唤醒的时间，由外部决定唤醒信号发送时机
 // 开启 tickless 可能会影响实时性。
 // 感觉调度器层面 tickless 有点鸡肋，真要低功耗肯定是业务层面判断是否有待办然后决定关外设以及深度休眠
 #define ltx_cfg_USE_TICKLESS
@@ -23,8 +27,9 @@ typedef uint32_t TickType_t;
 // 1、将 ltx_Sys_tick_tack() 放置到硬件定时器中断内弹出闹钟
 #define SYSTICK_TYPE_INTERRUPT          1
 // 2、调度器通过空闲时判断外部时间戳来决定是否弹出闹钟
-#define SYSTICK_TYPE_TIMESTAMP          2
+// #define SYSTICK_TYPE_TIMESTAMP          2
 
+// 暂时还不支持 SYSTICK_TYPE_TIMESTAMP，所以这里请不要改
 #define ltx_cfg_SYSTICK_TYPE            SYSTICK_TYPE_INTERRUPT
 
 /* ------------------- 选择一个对应架构的配置文件 ------------------- */
@@ -78,10 +83,15 @@ typedef uint32_t TickType_t;
                                                             } \
                                                             pSubscriber->prev = NULL; \
                                                         } \
+                                                        pCo->topic_wait_for = NULL; \
                                                         callback_retval |= 0x02; \
                                                     } \
                                                 }while(0)
-    #define ltx_hook_after_user_call_back()
+    #define ltx_hook_after_user_call_back()     do{ \
+                                                    if(callback_retval&0x02){ \
+                                                        callback_retval = 0; \
+                                                    } \
+                                                }while(0)
 #else
     #define ltx_hook_before_user_call_back()
     #define ltx_hook_after_user_call_back()

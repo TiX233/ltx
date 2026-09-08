@@ -2,7 +2,7 @@
  * @file ltx.h
  * @author realTiX
  * @brief 轻量级的事件驱动裸机调度框架，由闹钟和发布订阅机制构成。调度器可运行在软中断中，实现空闲任务/空闲休眠能力，支持 tickless
- * @version 4.0(Beta)
+ * @version 4.0
  * @date 2025-08-15 (0.1)
  *       2025-08-18 (0.2, 修复在 remove 或 unsubscribe 时没有成员的话会访问到空指针的 bug)
  *       2025-09-02 (0.3, 修复 alarm 会多延时一个 tick 的 bug，移除记录闹钟超时时间的功能)
@@ -35,10 +35,10 @@
  *       2026-07-17 (3.4, 增加 ltx_Topic_publish_high_priority API，提供高优先级事件发布能力；删除遗留 timer 代码)
  *       2026-07-20 (3.5, 优化 ltx_Topic_publish_high_priority，省略不必要的启动调度信号，提高效率)
  * 
- *       2026-09-xx (4.0, 重构，支持同构多核 SMP 调度，预留回调前临界区内钩子，用于避免 ctx 回调被多核重入；
+ *       2026-09-08 (4.0, 重构，支持同构多核 SMP 调度，预留回调前临界区内钩子，用于避免 ctx 回调被多核重入；
  *                              删除话题内订阅者链表尾指针，取消订阅不再需要提供 topic 指针，初始化 topic 与 alarm 也会更简单；
- *                              tickless 不再由调度器操作硬件定时器实现，调度器只返回下次唤醒时刻，由外部在唤醒时机到达后触发调度信号恢复调度器；
- *                              支持时间戳调度；)
+ *                              将启动调度信号都转移到临界区外，避免用户可能会在自定义调度信号内部重新进入临界区导致提前释放或者死锁；
+ *                              tickless 不再由调度器直接操作硬件定时器实现，调度器只返回下次唤醒时刻，由外部在唤醒时机到达后触发调度信号恢复调度器)
  * 
  * @copyright Copyright (c) 2025-2026, realTiX
  * @license Apache-2.0
@@ -115,9 +115,9 @@ void ltx_Topic_publish(struct ltx_Topic_stu *topic);
 void ltx_Topic_publish_high_priority(struct ltx_Topic_stu *topic);
 
 
+#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
 // 系统嘀嗒，由 systick/硬件定时器 中断服务函数调用
 void ltx_Sys_tick_tack(void);
-#if (ltx_cfg_SYSTICK_TYPE == SYSTICK_TYPE_INTERRUPT)
 // 获取系统自开机以来的 tick 计数，如果开了 tickless 或者改成时间戳调度，那么用户要把这个实现为自己平台的获取 tick 的函数
 TickType_t ltx_Sys_get_tick(void);
 #endif
