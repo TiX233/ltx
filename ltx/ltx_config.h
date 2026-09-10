@@ -4,6 +4,14 @@
 #include "stdint.h"
 
 /* ------------------- 系统时钟单位 tick 数据类型 ------------------- */
+// V4 改采用时间戳调度，不再由调度器管理时间，总之性能更高解耦更好
+// 用户根据自身平台提供 ltx_Sys_get_tick 即可，灵活性更高（可以用更高精度的时间单位作为 1tick 而不用产生那么高频率的中断）并且利于 tickless
+// 一般提供 uint32_t 的毫秒时间戳即可，不必担心溢出，除非您打算延时超过 0xFFFFFFFE 毫秒（约 50 天）
+// 在 32 位机器上，64 位数据的计算耗时是 32 位的 5 倍以上，所以这里特地规避了一般时间戳调度需要提供 64 位时间戳的情况，并且不用担心溢出
+// 总之根据业务中最大的延时时间确定类型定即可，假如业务里最大的延时不超过 255 毫秒，那么您甚至可以使用 uint8_t 作为 TickType_t
+// 这并不代表 ltx V4 是直接将延时时间存储在闹钟内，那样的话 tickless 醒来后要遍历所有闹钟删减他们的延时，时间复杂度会来到 O(n)
+// V4 闹钟节点只会存储距离前个闹钟节点的触发时间间隔，所以 tickless 醒来后只需要弹出首(几)个闹钟即可，时间复杂度是优雅的 O(1)
+// 为什么闹钟节点不存储被触发的时间戳？因为如果时间戳溢出会导致闹钟链表顺序错乱
 typedef uint32_t TickType_t;
 // 最大延时
 #define LTX_MAX_TICK                    (0xFFFFFFFF-1)
@@ -11,26 +19,12 @@ typedef uint32_t TickType_t;
 #define LTX_INFINITE_TICK               (0xFFFFFFFF)
 
 /* ------------------------- 核心/线程 数量 ------------------------- */
-#define ltx_cfg_CORE_NUM                2
+#define ltx_cfg_CORE_NUM                1
 
 /* ------------------- 空闲休眠与 tickless 开关宏 ------------------- */
 // 需要空闲休眠则打开此宏，不打开则事件循环将不断尝试弹出事件队列头，打开后会进入用户实现的休眠回调
-#define ltx_cfg_USE_IDLE_SLEEP
-
-// 需要 tickless 则打开此宏，前提是开启空闲休眠宏
 // V4 版本将不会由调度器操作硬件定时器，而是通过 ltx_hook_idle_in 传递下次唤醒的时间，由外部决定唤醒信号发送时机
-// 开启 tickless 可能会影响实时性。
-// 感觉调度器层面 tickless 有点鸡肋，真要低功耗肯定是业务层面判断是否有待办然后决定关外设以及深度休眠
-#define ltx_cfg_USE_TICKLESS
-
-// 选择一种时间驱动方案
-// 1、将 ltx_Sys_tick_tack() 放置到硬件定时器中断内弹出闹钟
-#define SYSTICK_TYPE_INTERRUPT          1
-// 2、调度器通过空闲时判断外部时间戳来决定是否弹出闹钟
-// #define SYSTICK_TYPE_TIMESTAMP          2
-
-// 暂时还不支持 SYSTICK_TYPE_TIMESTAMP，所以这里请不要改
-#define ltx_cfg_SYSTICK_TYPE            SYSTICK_TYPE_INTERRUPT
+#define ltx_cfg_USE_IDLE_SLEEP
 
 /* ------------------- 选择一个对应架构的配置文件 ------------------- */
 #include "ltx_arch_arm_cortex_m.h"
@@ -64,16 +58,7 @@ typedef uint32_t TickType_t;
                                                     }else if(pSubscriber->callback_func == _co_subscriber_cb){ \
                                                         struct coro_stu *pCo = container_of(pSubscriber, struct coro_stu, subscriber_topic); \
                                                         /* 关闭超时闹钟 */ \
-                                                        pCo->alarm_next_run.topic.state &= (~0x01); \
-                                                        if(pCo->alarm_next_run.prev != NULL){ \
-                                                            pCo->alarm_next_run.prev->next = pCo->alarm_next_run.next; \
-                                                            if(pCo->alarm_next_run.next != NULL){ \
-                                                                pCo->alarm_next_run.next->prev = pCo->alarm_next_run.prev; \
-                                                                pCo->alarm_next_run.next->diff_tick += pCo->alarm_next_run.diff_tick; \
-                                                                pCo->alarm_next_run.next = NULL; \
-                                                            } \
-                                                            pCo->alarm_next_run.prev = NULL; \
-                                                        } \
+                                                        __ltx_MC_Alarm_remove(&pCo->alarm_next_run); \
                                                         /* 取消订阅该事件 */ \
                                                         if(pSubscriber->prev != NULL){ \
                                                             pSubscriber->prev->next = pSubscriber->next; \
@@ -102,8 +87,6 @@ typedef uint32_t TickType_t;
 #ifndef ltx_cfg_USE_IDLE_SLEEP
     // 设置调度标志位，表示需要进行调度，可配置为 发布 rtos 信号量、产生 cpu 唤醒事件 等等
     #define _LTX_SET_SCHEDULE_FLAG()    do{}while(0)
-    // 清除调度标志位
-    // #define _LTX_CLEAR_SCHEDULE_FLAG()  do{}while(0)
 #endif
 
 // 编译器相关宏定义，偷自 rtthread
